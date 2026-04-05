@@ -29,7 +29,6 @@ def init_db():
                 name TEXT NOT NULL,
                 color TEXT NOT NULL
             );
-
             CREATE TABLE IF NOT EXISTS ArtHandler (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -44,13 +43,12 @@ def init_db():
                 notes TEXT,
                 company TEXT DEFAULT ''
             );
-
             CREATE TABLE IF NOT EXISTS Truck (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
-                licensePlate TEXT
+                licensePlate TEXT,
+                spec TEXT DEFAULT ''
             );
-
             CREATE TABLE IF NOT EXISTS Project (
                 id TEXT PRIMARY KEY,
                 projectNumber TEXT NOT NULL,
@@ -63,7 +61,6 @@ def init_db():
                 createdBy TEXT NOT NULL,
                 FOREIGN KEY (clientId) REFERENCES Client(id)
             );
-
             CREATE TABLE IF NOT EXISTS Booking (
                 id TEXT PRIMARY KEY,
                 projectId TEXT NOT NULL,
@@ -72,7 +69,6 @@ def init_db():
                 FOREIGN KEY (projectId) REFERENCES Project(id) ON DELETE CASCADE,
                 FOREIGN KEY (handlerId) REFERENCES ArtHandler(id)
             );
-
             CREATE TABLE IF NOT EXISTS TruckBooking (
                 id TEXT PRIMARY KEY,
                 projectId TEXT NOT NULL,
@@ -81,7 +77,6 @@ def init_db():
                 FOREIGN KEY (projectId) REFERENCES Project(id) ON DELETE CASCADE,
                 FOREIGN KEY (truckId) REFERENCES Truck(id)
             );
-
             CREATE TABLE IF NOT EXISTS Unavailability (
                 id TEXT PRIMARY KEY,
                 handlerId TEXT NOT NULL,
@@ -89,7 +84,6 @@ def init_db():
                 reason TEXT,
                 FOREIGN KEY (handlerId) REFERENCES ArtHandler(id)
             );
-
             CREATE TABLE IF NOT EXISTS TruckUnavailability (
                 id TEXT PRIMARY KEY,
                 truckId TEXT NOT NULL,
@@ -98,12 +92,19 @@ def init_db():
                 FOREIGN KEY (truckId) REFERENCES Truck(id)
             );
         """)
-        # Migrate: add company column to existing databases
+        # Migrations for existing databases
+        for col in ["company TEXT DEFAULT ''", "notes TEXT"]:
+            try:
+                conn.execute(f"ALTER TABLE ArtHandler ADD COLUMN {col}")
+            except Exception:
+                pass
         try:
-            conn.execute("ALTER TABLE ArtHandler ADD COLUMN company TEXT DEFAULT ''")
+            conn.execute("ALTER TABLE Truck ADD COLUMN spec TEXT DEFAULT ''")
         except Exception:
-            pass  # column already exists
+            pass
     _seed_if_empty()
+    _migrate_handlers()
+    _migrate_trucks()
 
 
 def _seed_if_empty():
@@ -112,96 +113,126 @@ def _seed_if_empty():
             return
 
         clients = [
-            ("client-louvre", "Louvre", "#FFD700"),
-            ("client-tate", "Tate Modern", "#90EE90"),
-            ("client-guggenheim", "Guggenheim", "#ADD8E6"),
-            ("client-orsay", "Musée d'Orsay", "#FFB347"),
+            ("client-louvre",      "Louvre",          "#FFD700"),
+            ("client-tate",        "Tate Modern",     "#90EE90"),
+            ("client-guggenheim",  "Guggenheim",      "#ADD8E6"),
+            ("client-orsay",       "Musée d'Orsay",   "#FFB347"),
         ]
         conn.executemany("INSERT INTO Client VALUES (?,?,?)", clients)
 
         # (id, name, email, color, level, type, truck, car, forklift, louvre, notes, company)
         handlers = [
-            ("h1",  "Sophie Martin",  "sophie.martin@hasenkamp.com",  "#4A90D9", "Senior", "Internal",      1, 1, 1, 1, "Team leader", ""),
-            ("h2",  "James Thornton", "james.thornton@hasenkamp.com", "#4A90D9", "Senior", "Internal",      1, 1, 0, 1, "",            ""),
-            ("h3",  "Clara Dubois",   "clara.dubois@hasenkamp.com",   "#27AE60", "Mid",    "Internal",      0, 1, 0, 1, "",            ""),
-            ("h4",  "Marcus Bauer",   "marcus.bauer@hasenkamp.com",   "#27AE60", "Mid",    "Internal",      1, 1, 1, 0, "Louvre badge pending", ""),
-            ("h5",  "Léa Fontaine",   "lea.fontaine@hasenkamp.com",   "#F39C12", "Junior", "Internal",      0, 1, 0, 0, "",            ""),
-            # Independent subcontractors
-            ("h6",  "Ravi Patel",     "ravi.patel@freelance.com",     "#9B59B6", "Senior", "Subcontractor", 1, 1, 0, 1, "",            ""),
-            ("h7",  "Yann Leclerc",   "yann.leclerc@freelance.com",   "#E74C3C", "Mid",    "Subcontractor", 1, 1, 0, 1, "",            ""),
-            # Blitz subcontractors
-            ("h8",  "Marco Ferretti", "marco.ferretti@blitz.com",     "#E74C3C", "Mid",    "Subcontractor", 0, 1, 0, 0, "",            "Blitz"),
-            ("h9",  "Lena Schulz",    "lena.schulz@blitz.com",        "#E74C3C", "Mid",    "Subcontractor", 0, 1, 0, 0, "",            "Blitz"),
-            ("h10", "Tom Dupont",     "tom.dupont@blitz.com",         "#95A5A6", "Junior", "Subcontractor", 0, 1, 0, 0, "",            "Blitz"),
-            ("h11", "Sara Okonkwo",   "sara.okonkwo@blitz.com",       "#95A5A6", "Junior", "Subcontractor", 0, 0, 0, 0, "",            "Blitz"),
+            ("h1",  "Sophie Martin",   "sophie.martin@hasenkamp.com",   "#4A90D9", "Senior", "Internal",      1,1,1,1, "Team leader", ""),
+            ("h2",  "James Thornton",  "james.thornton@hasenkamp.com",  "#4A90D9", "Senior", "Internal",      1,1,0,1, "",            ""),
+            ("h3",  "Clara Dubois",    "clara.dubois@hasenkamp.com",    "#27AE60", "Mid",    "Internal",      0,1,0,1, "",            ""),
+            ("h4",  "Marcus Bauer",    "marcus.bauer@hasenkamp.com",    "#27AE60", "Mid",    "Internal",      1,1,1,0, "Louvre badge pending", ""),
+            ("h5",  "Léa Fontaine",    "lea.fontaine@hasenkamp.com",    "#F39C12", "Junior", "Internal",      0,1,0,0, "",            ""),
+            ("h6",  "Ravi Patel",      "ravi.patel@freelance.com",      "#9B59B6", "Senior", "Subcontractor", 1,1,0,1, "",            ""),
+            ("h7",  "Yann Leclerc",    "yann.leclerc@freelance.com",    "#E74C3C", "Mid",    "Subcontractor", 1,1,0,1, "",            ""),
+            ("h8",  "Marco Ferretti",  "marco.ferretti@blitz.com",      "#E74C3C", "Mid",    "Subcontractor", 0,1,0,0, "",            "Blitz"),
+            ("h9",  "Lena Schulz",     "lena.schulz@blitz.com",         "#E74C3C", "Mid",    "Subcontractor", 0,1,0,0, "",            "Blitz"),
+            ("h10", "Tom Dupont",      "tom.dupont@blitz.com",          "#95A5A6", "Junior", "Subcontractor", 0,1,0,0, "",            "Blitz"),
+            ("h11", "Sara Okonkwo",    "sara.okonkwo@blitz.com",        "#95A5A6", "Junior", "Subcontractor", 0,0,0,0, "",            "Blitz"),
         ]
-        conn.executemany(
-            "INSERT INTO ArtHandler VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", handlers
-        )
+        conn.executemany("INSERT INTO ArtHandler VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", handlers)
 
         trucks = [
-            ("t1", "Van 1",      "75-ART-001"),
-            ("t2", "Van 2",      "75-ART-002"),
-            ("t3", "Truck 7.5T", "75-ART-003"),
-            ("t4", "Truck 12T",  "75-ART-004"),
+            ("t1", "Van 1",       "75-ART-001", "Sprinter"),
+            ("t2", "Van 2",       "75-ART-002", "Sprinter"),
+            ("t3", "Truck 3T",    "75-ART-003", "3 ton"),
+            ("t4", "Truck 10T",   "75-ART-004", "10 ton"),
         ]
-        conn.executemany("INSERT INTO Truck VALUES (?,?,?)", trucks)
+        conn.executemany("INSERT INTO Truck VALUES (?,?,?,?)", trucks)
 
         today = date.today()
         d2 = (today + timedelta(days=2)).isoformat()
         d4 = (today + timedelta(days=4)).isoformat()
         d3 = (today + timedelta(days=3)).isoformat()
 
-        conn.execute(
-            "INSERT INTO Project VALUES (?,?,?,?,?,?,?,?,?)",
-            ("p1", "HAR-2026-001", "Louvre - Egyptian Gallery Install",
-             "client-louvre", "Install of 12 Egyptian artefacts in gallery B.",
-             "Louvre Museum, Paris - Denon Wing", d2, "BOOKED", "AG"),
-        )
-        for bid, hid in [("b1a", "h1"), ("b1b", "h2"), ("b1c", "h3"), ("b1d", "h8")]:
-            conn.execute("INSERT INTO Booking VALUES (?,?,?,?)", (bid, "p1", hid, d2))
-        conn.execute("INSERT INTO TruckBooking VALUES (?,?,?,?)", ("tb1", "p1", "t3", d2))
+        conn.execute("INSERT INTO Project VALUES (?,?,?,?,?,?,?,?,?)",
+            ("p1","HAR-2026-001","Louvre - Egyptian Gallery Install","client-louvre",
+             "Install of 12 Egyptian artefacts in gallery B.",
+             "Louvre Museum, Paris - Denon Wing",d2,"BOOKED","AG"))
+        for bid,hid in [("b1a","h1"),("b1b","h2"),("b1c","h3"),("b1d","h8")]:
+            conn.execute("INSERT INTO Booking VALUES (?,?,?,?)",(bid,"p1",hid,d2))
+        conn.execute("INSERT INTO TruckBooking VALUES (?,?,?,?)",("tb1","p1","t3",d2))
 
-        conn.execute(
-            "INSERT INTO Project VALUES (?,?,?,?,?,?,?,?,?)",
-            ("p2", "HAR-2026-002", "Tate Modern - Sculpture Move",
-             "client-tate", "Move 3 large sculptures from storage to Turbine Hall.",
-             "Tate Modern, London - Turbine Hall", d4, "PRE_BOOKED", "AG"),
-        )
-        for bid, hid in [("b2a", "h4"), ("b2b", "h5"), ("b2c", "h9")]:
-            conn.execute("INSERT INTO Booking VALUES (?,?,?,?)", (bid, "p2", hid, d4))
+        conn.execute("INSERT INTO Project VALUES (?,?,?,?,?,?,?,?,?)",
+            ("p2","HAR-2026-002","Tate Modern - Sculpture Move","client-tate",
+             "Move 3 large sculptures from storage to Turbine Hall.",
+             "Tate Modern, London - Turbine Hall",d4,"PRE_BOOKED","AG"))
+        for bid,hid in [("b2a","h4"),("b2b","h5"),("b2c","h9")]:
+            conn.execute("INSERT INTO Booking VALUES (?,?,?,?)",(bid,"p2",hid,d4))
 
-        conn.execute(
-            "INSERT INTO Unavailability VALUES (?,?,?,?)",
-            ("u1", "h10", d3, "Annual leave"),
-        )
-        conn.execute(
-            "INSERT INTO TruckUnavailability VALUES (?,?,?,?)",
-            ("tu1", "t2", d2, "Service"),
-        )
+        conn.execute("INSERT INTO Unavailability VALUES (?,?,?,?)",("u1","h10",d3,"Annual leave"))
+        conn.execute("INSERT INTO TruckUnavailability VALUES (?,?,?,?)",("tu1","t2",d2,"Service"))
+
+
+def _migrate_handlers():
+    """Add new handlers to existing databases if they don't already exist."""
+    new_handlers = [
+        # Internal — Senior
+        ("h12", "Antoine Morel",    "antoine.morel@hasenkamp.com",    "#4A90D9", "Senior", "Internal",      1,1,1,1, "",            ""),
+        ("h13", "Nadia Rousseau",   "nadia.rousseau@hasenkamp.com",   "#4A90D9", "Senior", "Internal",      0,1,0,1, "First aider", ""),
+        ("h14", "Erik Larsen",      "erik.larsen@hasenkamp.com",      "#4A90D9", "Senior", "Internal",      1,1,1,1, "",            ""),
+        # Internal — Mid
+        ("h15", "Camille Bernard",  "camille.bernard@hasenkamp.com",  "#27AE60", "Mid",    "Internal",      0,1,0,1, "",            ""),
+        ("h16", "Julien Petit",     "julien.petit@hasenkamp.com",     "#27AE60", "Mid",    "Internal",      1,1,0,0, "",            ""),
+        ("h17", "Isabelle Garnier", "isabelle.garnier@hasenkamp.com", "#27AE60", "Mid",    "Internal",      0,1,1,1, "",            ""),
+        ("h18", "Lukas Hoffmann",   "lukas.hoffmann@hasenkamp.com",   "#27AE60", "Mid",    "Internal",      1,1,0,0, "",            ""),
+        ("h19", "Fiona Blanc",      "fiona.blanc@hasenkamp.com",      "#27AE60", "Mid",    "Internal",      0,1,0,1, "",            ""),
+        # Internal — Junior
+        ("h20", "Théo Lambert",     "theo.lambert@hasenkamp.com",     "#F39C12", "Junior", "Internal",      0,1,0,0, "",            ""),
+        ("h21", "Zoé Martin",       "zoe.martin@hasenkamp.com",       "#F39C12", "Junior", "Internal",      0,1,0,0, "",            ""),
+        ("h22", "Hugo Renard",      "hugo.renard@hasenkamp.com",      "#F39C12", "Junior", "Internal",      0,0,0,0, "",            ""),
+        ("h23", "Elisa Simon",      "elisa.simon@hasenkamp.com",      "#F39C12", "Junior", "Internal",      0,1,0,0, "",            ""),
+        # Independent Subcontractors — Senior/Mid
+        ("h24", "Dmitri Volkov",    "dmitri.volkov@artpro.eu",        "#9B59B6", "Senior", "Subcontractor", 1,1,1,0, "",            ""),
+        ("h25", "Amara Diallo",     "amara.diallo@artpro.eu",         "#9B59B6", "Senior", "Subcontractor", 0,1,0,1, "",            ""),
+        ("h26", "Carlos Rivera",    "carlos.rivera@artstaff.com",     "#E74C3C", "Mid",    "Subcontractor", 1,1,0,0, "",            ""),
+        ("h27", "Hana Novak",       "hana.novak@artstaff.com",        "#E74C3C", "Mid",    "Subcontractor", 0,1,0,0, "",            ""),
+        ("h28", "Stefan Braun",     "stefan.braun@artstaff.com",      "#E74C3C", "Mid",    "Subcontractor", 1,1,1,0, "",            ""),
+        # Blitz — additional
+        ("h29", "Kevin Osei",       "kevin.osei@blitz.com",           "#E74C3C", "Mid",    "Subcontractor", 0,1,0,0, "",            "Blitz"),
+        ("h30", "Miriam Adler",     "miriam.adler@blitz.com",         "#95A5A6", "Junior", "Subcontractor", 0,1,0,0, "",            "Blitz"),
+        ("h31", "Patrice Nguyen",   "patrice.nguyen@blitz.com",       "#95A5A6", "Junior", "Subcontractor", 0,0,0,0, "",            "Blitz"),
+    ]
+    with get_conn() as conn:
+        existing = {r[0] for r in conn.execute("SELECT id FROM ArtHandler").fetchall()}
+        for h in new_handlers:
+            if h[0] not in existing:
+                conn.execute("INSERT INTO ArtHandler VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", h)
+
+
+def _migrate_trucks():
+    """Update truck specs for existing seed trucks, add spec column data."""
+    spec_map = {
+        "t1": "Sprinter", "t2": "Sprinter",
+        "t3": "3 ton",    "t4": "10 ton",
+    }
+    with get_conn() as conn:
+        for tid, spec in spec_map.items():
+            conn.execute(
+                "UPDATE Truck SET spec=? WHERE id=? AND (spec IS NULL OR spec='')",
+                (spec, tid)
+            )
 
 
 def get_unavailable_handler_ids(date_str: str):
-    """Returns (unavail_ids, booked_ids) sets of handlerIds blocked on a given date."""
     with get_conn() as conn:
         unavail = {r[0] for r in conn.execute(
-            "SELECT handlerId FROM Unavailability WHERE date=?", (date_str,)
-        ).fetchall()}
+            "SELECT handlerId FROM Unavailability WHERE date=?", (date_str,)).fetchall()}
         booked = {r[0] for r in conn.execute(
-            "SELECT handlerId FROM Booking WHERE date=?", (date_str,)
-        ).fetchall()}
+            "SELECT handlerId FROM Booking WHERE date=?", (date_str,)).fetchall()}
     return unavail, booked
 
 
 def get_unavailable_truck_ids(date_str: str):
-    """Returns (unavail_ids, booked_ids) sets of truckIds blocked on a given date."""
     with get_conn() as conn:
         unavail = {r[0] for r in conn.execute(
-            "SELECT truckId FROM TruckUnavailability WHERE date=?", (date_str,)
-        ).fetchall()}
+            "SELECT truckId FROM TruckUnavailability WHERE date=?", (date_str,)).fetchall()}
         booked = {r[0] for r in conn.execute(
-            "SELECT truckId FROM TruckBooking WHERE date=?", (date_str,)
-        ).fetchall()}
+            "SELECT truckId FROM TruckBooking WHERE date=?", (date_str,)).fetchall()}
     return unavail, booked
 
 
@@ -211,17 +242,14 @@ def get_clients():
     with get_conn() as conn:
         return [dict(r) for r in conn.execute("SELECT * FROM Client ORDER BY name").fetchall()]
 
-
 def create_client(name, color):
     import uuid
     with get_conn() as conn:
         conn.execute("INSERT INTO Client VALUES (?,?,?)", (str(uuid.uuid4()), name, color))
 
-
 def update_client(id, name, color):
     with get_conn() as conn:
         conn.execute("UPDATE Client SET name=?, color=? WHERE id=?", (name, color, id))
-
 
 def delete_client(id):
     with get_conn() as conn:
@@ -236,7 +264,6 @@ def get_handlers():
             "SELECT * FROM ArtHandler ORDER BY type, level, name"
         ).fetchall()]
 
-
 def create_handler(data: dict):
     import uuid
     with get_conn() as conn:
@@ -245,10 +272,8 @@ def create_handler(data: dict):
             (str(uuid.uuid4()), data["name"], data["email"], data["color"],
              data["level"], data["type"], int(data["canDriveTruck"]),
              int(data["canDriveCar"]), int(data["canDriveForklift"]),
-             int(data["hasBadgeLouvre"]), data.get("notes", ""),
-             data.get("company", "")),
+             int(data["hasBadgeLouvre"]), data.get("notes",""), data.get("company","")),
         )
-
 
 def update_handler(id, data: dict):
     with get_conn() as conn:
@@ -259,9 +284,8 @@ def update_handler(id, data: dict):
             (data["name"], data["email"], data["color"], data["level"], data["type"],
              int(data["canDriveTruck"]), int(data["canDriveCar"]),
              int(data["canDriveForklift"]), int(data["hasBadgeLouvre"]),
-             data.get("notes", ""), data.get("company", ""), id),
+             data.get("notes",""), data.get("company",""), id),
         )
-
 
 def delete_handler(id):
     with get_conn() as conn:
@@ -274,17 +298,15 @@ def get_trucks():
     with get_conn() as conn:
         return [dict(r) for r in conn.execute("SELECT * FROM Truck ORDER BY name").fetchall()]
 
-
-def create_truck(name, license_plate):
+def create_truck(name, license_plate, spec=""):
     import uuid
     with get_conn() as conn:
-        conn.execute("INSERT INTO Truck VALUES (?,?,?)", (str(uuid.uuid4()), name, license_plate))
+        conn.execute("INSERT INTO Truck VALUES (?,?,?,?)", (str(uuid.uuid4()), name, license_plate, spec))
 
-
-def update_truck(id, name, license_plate):
+def update_truck(id, name, license_plate, spec=""):
     with get_conn() as conn:
-        conn.execute("UPDATE Truck SET name=?,licensePlate=? WHERE id=?", (name, license_plate, id))
-
+        conn.execute("UPDATE Truck SET name=?,licensePlate=?,spec=? WHERE id=?",
+                     (name, license_plate, spec, id))
 
 def delete_truck(id):
     with get_conn() as conn:
@@ -302,7 +324,6 @@ def get_projects_in_range(start: date, days: int):
             "WHERE p.date >= ? AND p.date <= ? ORDER BY p.date",
             (start.isoformat(), end.isoformat()),
         ).fetchall()]
-
         for p in projects:
             p["bookings"] = [dict(r) for r in conn.execute(
                 "SELECT b.*, h.name as handlerName, h.email as handlerEmail, "
@@ -312,12 +333,11 @@ def get_projects_in_range(start: date, days: int):
                 "WHERE b.projectId=?", (p["id"],)
             ).fetchall()]
             p["truckBookings"] = [dict(r) for r in conn.execute(
-                "SELECT tb.*, t.name as truckName, t.licensePlate "
+                "SELECT tb.*, t.name as truckName, t.licensePlate, COALESCE(t.spec,'') as spec "
                 "FROM TruckBooking tb JOIN Truck t ON t.id = tb.truckId "
                 "WHERE tb.projectId=?", (p["id"],)
             ).fetchall()]
         return projects
-
 
 def create_project(data: dict, handler_ids: list, truck_ids: list):
     import uuid
@@ -327,25 +347,19 @@ def create_project(data: dict, handler_ids: list, truck_ids: list):
             "INSERT INTO Project VALUES (?,?,?,?,?,?,?,?,?)",
             (pid, data["projectNumber"], data["title"], data["clientId"],
              data.get("description"), data.get("location"), data["date"],
-             data.get("status", "PRE_BOOKED"), data["createdBy"]),
+             data.get("status","PRE_BOOKED"), data["createdBy"]),
         )
         for hid in handler_ids:
-            conn.execute(
-                "INSERT INTO Booking VALUES (?,?,?,?)",
-                (str(uuid.uuid4()), pid, hid, data["date"]),
-            )
+            conn.execute("INSERT INTO Booking VALUES (?,?,?,?)",
+                         (str(uuid.uuid4()), pid, hid, data["date"]))
         for tid in truck_ids:
-            conn.execute(
-                "INSERT INTO TruckBooking VALUES (?,?,?,?)",
-                (str(uuid.uuid4()), pid, tid, data["date"]),
-            )
+            conn.execute("INSERT INTO TruckBooking VALUES (?,?,?,?)",
+                         (str(uuid.uuid4()), pid, tid, data["date"]))
     return pid
-
 
 def confirm_project(id):
     with get_conn() as conn:
         conn.execute("UPDATE Project SET status='BOOKED' WHERE id=?", (id,))
-
 
 def delete_project(id):
     with get_conn() as conn:
@@ -359,52 +373,30 @@ def get_unavailabilities_in_range(start: date, days: int):
     with get_conn() as conn:
         handler_unavail = [dict(r) for r in conn.execute(
             "SELECT * FROM Unavailability WHERE date >= ? AND date <= ?",
-            (start.isoformat(), end.isoformat()),
-        ).fetchall()]
+            (start.isoformat(), end.isoformat())).fetchall()]
         truck_unavail = [dict(r) for r in conn.execute(
             "SELECT * FROM TruckUnavailability WHERE date >= ? AND date <= ?",
-            (start.isoformat(), end.isoformat()),
-        ).fetchall()]
+            (start.isoformat(), end.isoformat())).fetchall()]
     return handler_unavail, truck_unavail
-
 
 def set_handler_unavailable(handler_id, date_str, reason):
     import uuid
     with get_conn() as conn:
-        conn.execute(
-            "DELETE FROM Unavailability WHERE handlerId=? AND date=?",
-            (handler_id, date_str),
-        )
-        conn.execute(
-            "INSERT INTO Unavailability VALUES (?,?,?,?)",
-            (str(uuid.uuid4()), handler_id, date_str, reason),
-        )
-
+        conn.execute("DELETE FROM Unavailability WHERE handlerId=? AND date=?", (handler_id, date_str))
+        conn.execute("INSERT INTO Unavailability VALUES (?,?,?,?)",
+                     (str(uuid.uuid4()), handler_id, date_str, reason))
 
 def remove_handler_unavailability(handler_id, date_str):
     with get_conn() as conn:
-        conn.execute(
-            "DELETE FROM Unavailability WHERE handlerId=? AND date=?",
-            (handler_id, date_str),
-        )
-
+        conn.execute("DELETE FROM Unavailability WHERE handlerId=? AND date=?", (handler_id, date_str))
 
 def set_truck_unavailable(truck_id, date_str, reason):
     import uuid
     with get_conn() as conn:
-        conn.execute(
-            "DELETE FROM TruckUnavailability WHERE truckId=? AND date=?",
-            (truck_id, date_str),
-        )
-        conn.execute(
-            "INSERT INTO TruckUnavailability VALUES (?,?,?,?)",
-            (str(uuid.uuid4()), truck_id, date_str, reason),
-        )
-
+        conn.execute("DELETE FROM TruckUnavailability WHERE truckId=? AND date=?", (truck_id, date_str))
+        conn.execute("INSERT INTO TruckUnavailability VALUES (?,?,?,?)",
+                     (str(uuid.uuid4()), truck_id, date_str, reason))
 
 def remove_truck_unavailability(truck_id, date_str):
     with get_conn() as conn:
-        conn.execute(
-            "DELETE FROM TruckUnavailability WHERE truckId=? AND date=?",
-            (truck_id, date_str),
-        )
+        conn.execute("DELETE FROM TruckUnavailability WHERE truckId=? AND date=?", (truck_id, date_str))
