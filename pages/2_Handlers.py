@@ -56,6 +56,8 @@ for group in group_order:
                     if h["hasBadgeLouvre"]: badges.append("🏛 Louvre")
                     if badges:
                         st.caption(" · ".join(badges))
+                    if h.get("company"):
+                        st.caption(f"🏢 {h['company']}")
                     if h["notes"]:
                         st.caption(f"📝 {h['notes']}")
                 with c2:
@@ -92,6 +94,11 @@ with st.form("handler_form", clear_on_submit=not editing):
             "Colour (auto by level, override if needed)",
             value=editing["color"] if editing else auto_color,
         )
+        company = st.text_input(
+            "Company (leave blank for independent / internal)",
+            value=editing.get("company", "") if editing else "",
+            placeholder="e.g. Blitz",
+        )
         notes = st.text_input("Notes (extra badges, etc.)",
                               value=editing["notes"] if editing and editing["notes"] else "")
 
@@ -118,6 +125,7 @@ if submitted:
             "name": name, "email": email, "color": color, "level": level, "type": htype,
             "canDriveTruck": can_truck, "canDriveCar": can_car,
             "canDriveForklift": can_fork, "hasBadgeLouvre": louvre, "notes": notes,
+            "company": company,
         }
         if editing:
             db.update_handler(editing["id"], data)

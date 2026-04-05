@@ -5,6 +5,9 @@ from contextlib import contextmanager
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "hasenkamp.db")
 
+PRABAH_EMAIL = "prabah@blitz-arthandlers.com"  # update with real email
+BLITZ_COMPANY = "Blitz"
+
 
 @contextmanager
 def get_conn():
@@ -38,7 +41,8 @@ def init_db():
                 canDriveCar INTEGER DEFAULT 0,
                 canDriveForklift INTEGER DEFAULT 0,
                 hasBadgeLouvre INTEGER DEFAULT 0,
-                notes TEXT
+                notes TEXT,
+                company TEXT DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS Truck (
@@ -94,6 +98,11 @@ def init_db():
                 FOREIGN KEY (truckId) REFERENCES Truck(id)
             );
         """)
+        # Migrate: add company column to existing databases
+        try:
+            conn.execute("ALTER TABLE ArtHandler ADD COLUMN company TEXT DEFAULT ''")
+        except Exception:
+            pass  # column already exists
     _seed_if_empty()
 
 
@@ -101,8 +110,6 @@ def _seed_if_empty():
     with get_conn() as conn:
         if conn.execute("SELECT COUNT(*) FROM Client").fetchone()[0] > 0:
             return
-
-        import uuid
 
         clients = [
             ("client-louvre", "Louvre", "#FFD700"),
@@ -112,27 +119,31 @@ def _seed_if_empty():
         ]
         conn.executemany("INSERT INTO Client VALUES (?,?,?)", clients)
 
+        # (id, name, email, color, level, type, truck, car, forklift, louvre, notes, company)
         handlers = [
-            ("h1", "Sophie Martin", "sophie.martin@hasenkamp.com", "#4A90D9", "Senior", "Internal", 1, 1, 1, 1, "Team leader"),
-            ("h2", "James Thornton", "james.thornton@hasenkamp.com", "#4A90D9", "Senior", "Internal", 1, 1, 0, 1, ""),
-            ("h3", "Clara Dubois", "clara.dubois@hasenkamp.com", "#27AE60", "Mid", "Internal", 0, 1, 0, 1, ""),
-            ("h4", "Marcus Bauer", "marcus.bauer@hasenkamp.com", "#27AE60", "Mid", "Internal", 1, 1, 1, 0, "Louvre badge pending"),
-            ("h5", "Léa Fontaine", "lea.fontaine@hasenkamp.com", "#F39C12", "Junior", "Internal", 0, 1, 0, 0, ""),
-            ("h6", "Ravi Patel", "ravi.patel@freelance.com", "#9B59B6", "Senior", "Subcontractor", 1, 1, 0, 1, ""),
-            ("h7", "Amelia Koch", "amelia.koch@arthandlers.eu", "#E74C3C", "Mid", "Subcontractor", 0, 1, 0, 0, ""),
-            ("h8", "Yann Leclerc", "yann.leclerc@freelance.com", "#E74C3C", "Mid", "Subcontractor", 1, 1, 0, 1, ""),
-            ("h9", "Nina Torres", "nina.torres@artcrew.com", "#95A5A6", "Junior", "Subcontractor", 0, 0, 0, 0, ""),
-            ("h10", "Ben Walker", "ben.walker@artcrew.com", "#95A5A6", "Junior", "Subcontractor", 0, 1, 0, 0, ""),
+            ("h1",  "Sophie Martin",  "sophie.martin@hasenkamp.com",  "#4A90D9", "Senior", "Internal",      1, 1, 1, 1, "Team leader", ""),
+            ("h2",  "James Thornton", "james.thornton@hasenkamp.com", "#4A90D9", "Senior", "Internal",      1, 1, 0, 1, "",            ""),
+            ("h3",  "Clara Dubois",   "clara.dubois@hasenkamp.com",   "#27AE60", "Mid",    "Internal",      0, 1, 0, 1, "",            ""),
+            ("h4",  "Marcus Bauer",   "marcus.bauer@hasenkamp.com",   "#27AE60", "Mid",    "Internal",      1, 1, 1, 0, "Louvre badge pending", ""),
+            ("h5",  "Léa Fontaine",   "lea.fontaine@hasenkamp.com",   "#F39C12", "Junior", "Internal",      0, 1, 0, 0, "",            ""),
+            # Independent subcontractors
+            ("h6",  "Ravi Patel",     "ravi.patel@freelance.com",     "#9B59B6", "Senior", "Subcontractor", 1, 1, 0, 1, "",            ""),
+            ("h7",  "Yann Leclerc",   "yann.leclerc@freelance.com",   "#E74C3C", "Mid",    "Subcontractor", 1, 1, 0, 1, "",            ""),
+            # Blitz subcontractors
+            ("h8",  "Marco Ferretti", "marco.ferretti@blitz.com",     "#E74C3C", "Mid",    "Subcontractor", 0, 1, 0, 0, "",            "Blitz"),
+            ("h9",  "Lena Schulz",    "lena.schulz@blitz.com",        "#E74C3C", "Mid",    "Subcontractor", 0, 1, 0, 0, "",            "Blitz"),
+            ("h10", "Tom Dupont",     "tom.dupont@blitz.com",         "#95A5A6", "Junior", "Subcontractor", 0, 1, 0, 0, "",            "Blitz"),
+            ("h11", "Sara Okonkwo",   "sara.okonkwo@blitz.com",       "#95A5A6", "Junior", "Subcontractor", 0, 0, 0, 0, "",            "Blitz"),
         ]
         conn.executemany(
-            "INSERT INTO ArtHandler VALUES (?,?,?,?,?,?,?,?,?,?,?)", handlers
+            "INSERT INTO ArtHandler VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", handlers
         )
 
         trucks = [
-            ("t1", "Van 1", "75-ART-001"),
-            ("t2", "Van 2", "75-ART-002"),
+            ("t1", "Van 1",      "75-ART-001"),
+            ("t2", "Van 2",      "75-ART-002"),
             ("t3", "Truck 7.5T", "75-ART-003"),
-            ("t4", "Truck 12T", "75-ART-004"),
+            ("t4", "Truck 12T",  "75-ART-004"),
         ]
         conn.executemany("INSERT INTO Truck VALUES (?,?,?)", trucks)
 
@@ -147,7 +158,7 @@ def _seed_if_empty():
              "client-louvre", "Install of 12 Egyptian artefacts in gallery B.",
              "Louvre Museum, Paris - Denon Wing", d2, "BOOKED", "AG"),
         )
-        for bid, hid in [("b1a", "h1"), ("b1b", "h2"), ("b1c", "h3"), ("b1d", "h6")]:
+        for bid, hid in [("b1a", "h1"), ("b1b", "h2"), ("b1c", "h3"), ("b1d", "h8")]:
             conn.execute("INSERT INTO Booking VALUES (?,?,?,?)", (bid, "p1", hid, d2))
         conn.execute("INSERT INTO TruckBooking VALUES (?,?,?,?)", ("tb1", "p1", "t3", d2))
 
@@ -157,12 +168,12 @@ def _seed_if_empty():
              "client-tate", "Move 3 large sculptures from storage to Turbine Hall.",
              "Tate Modern, London - Turbine Hall", d4, "PRE_BOOKED", "AG"),
         )
-        for bid, hid in [("b2a", "h4"), ("b2b", "h5"), ("b2c", "h7")]:
+        for bid, hid in [("b2a", "h4"), ("b2b", "h5"), ("b2c", "h9")]:
             conn.execute("INSERT INTO Booking VALUES (?,?,?,?)", (bid, "p2", hid, d4))
 
         conn.execute(
             "INSERT INTO Unavailability VALUES (?,?,?,?)",
-            ("u1", "h9", d3, "Annual leave"),
+            ("u1", "h10", d3, "Annual leave"),
         )
         conn.execute(
             "INSERT INTO TruckUnavailability VALUES (?,?,?,?)",
@@ -206,11 +217,12 @@ def create_handler(data: dict):
     import uuid
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO ArtHandler VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO ArtHandler VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (str(uuid.uuid4()), data["name"], data["email"], data["color"],
              data["level"], data["type"], int(data["canDriveTruck"]),
              int(data["canDriveCar"]), int(data["canDriveForklift"]),
-             int(data["hasBadgeLouvre"]), data.get("notes", "")),
+             int(data["hasBadgeLouvre"]), data.get("notes", ""),
+             data.get("company", "")),
         )
 
 
@@ -218,12 +230,12 @@ def update_handler(id, data: dict):
     with get_conn() as conn:
         conn.execute(
             """UPDATE ArtHandler SET name=?,email=?,color=?,level=?,type=?,
-               canDriveTruck=?,canDriveCar=?,canDriveForklift=?,hasBadgeLouvre=?,notes=?
+               canDriveTruck=?,canDriveCar=?,canDriveForklift=?,hasBadgeLouvre=?,notes=?,company=?
                WHERE id=?""",
             (data["name"], data["email"], data["color"], data["level"], data["type"],
              int(data["canDriveTruck"]), int(data["canDriveCar"]),
              int(data["canDriveForklift"]), int(data["hasBadgeLouvre"]),
-             data.get("notes", ""), id),
+             data.get("notes", ""), data.get("company", ""), id),
         )
 
 
@@ -270,7 +282,8 @@ def get_projects_in_range(start: date, days: int):
         for p in projects:
             p["bookings"] = [dict(r) for r in conn.execute(
                 "SELECT b.*, h.name as handlerName, h.email as handlerEmail, "
-                "h.color as handlerColor, h.level, h.hasBadgeLouvre "
+                "h.color as handlerColor, h.level, h.hasBadgeLouvre, "
+                "COALESCE(h.company,'') as company "
                 "FROM Booking b JOIN ArtHandler h ON h.id = b.handlerId "
                 "WHERE b.projectId=?", (p["id"],)
             ).fetchall()]
