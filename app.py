@@ -48,7 +48,7 @@ st.markdown("""
     text-align: left; white-space: nowrap;
     font-weight: 500; overflow: hidden;
     width: 130px; min-width: 130px; max-width: 130px;
-    padding: 1px 4px; background: #fafafa;
+    padding: 1px 4px;
 }
 .grid-table td.section-header {
     position: sticky; left: 0; z-index: 1;
@@ -81,6 +81,16 @@ def hex_to_rgba(hex_color: str, alpha: float) -> str:
     h = hex_color.lstrip("#")
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     return f"rgba({r},{g},{b},{alpha})"
+
+
+def hex_to_opaque_tint(hex_color: str, alpha: float = 0.15) -> str:
+    """Blend hex color with white at given alpha — returns a solid rgb() color."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    r2 = int(255 * (1 - alpha) + r * alpha)
+    g2 = int(255 * (1 - alpha) + g * alpha)
+    b2 = int(255 * (1 - alpha) + b * alpha)
+    return f"rgb({r2},{g2},{b2})"
 
 
 # ── Header ────────────────────────────────────────────────────────────────────
@@ -153,19 +163,21 @@ today_str = date.today().isoformat()
 # ── Grid ─────────────────────────────────────────────────────────────────────
 def _handler_rows(h_list, rows):
     for h in h_list:
-        name_bg = hex_to_rgba(h["color"], 0.15)
+        name_bg = hex_to_opaque_tint(h["color"], 0.18)
         icons = ""
         if h.get("canDriveTruck"):    icons += "🚛"
         if h.get("canDriveForklift"): icons += "🏗"
         if h.get("hasBadgeLouvre"):   icons += "🏛"
-        sub = "Sub" if h["type"] == "Subcontractor" else "Int"
+        company = h.get("company") or ""
+        sub_label = company if company else ""  # ISS, Blitz, or blank for internal
         rows.append(
             f"<tr><td class='name-cell' style='background:{name_bg}'>"
             f"<span style='display:inline-block;width:6px;height:6px;border-radius:50%;"
             f"background:{h['color']};margin-right:2px;vertical-align:middle'></span>"
-            f"<b style='font-size:9px'>{h['name']}</b>"
+            f"<b style='font-size:12px'>{h['name']}</b>"
             f"{(' ' + icons) if icons else ''}<br>"
-            f"<span style='font-size:7px;color:#999;padding-left:8px'>{h['level']} · {sub}</span>"
+            f"<span style='font-size:7px;color:#999;padding-left:8px'>"
+            f"{h['level']}{(' · ' + sub_label) if sub_label else ''}</span>"
             f"</td>"
         )
         for d in dates:
@@ -188,7 +200,7 @@ def _handler_rows(h_list, rows):
 
 def build_grid() -> str:
     internal_h = [h for h in handlers if h["type"] == "Internal"]
-    ind_sub_h  = [h for h in handlers if h["type"] == "Subcontractor" and h.get("company") != db.BLITZ_COMPANY]
+    iss_h      = [h for h in handlers if h.get("company") == "ISS"]
     blitz_h    = [h for h in handlers if h.get("company") == db.BLITZ_COMPANY]
 
     # Group dates by month for the top header row
@@ -220,10 +232,9 @@ def build_grid() -> str:
     rows.append("</tr>")
     rows.append("</thead><tbody>")
 
-    # Art Handlers (internal + independent sub)
+    # Art Handlers — internal only
     rows.append(f"<tr><td class='section-header' colspan='{DAYS+1}'>Art Handlers</td></tr>")
     _handler_rows(internal_h, rows)
-    _handler_rows(ind_sub_h, rows)
 
     # Vehicles
     rows.append(f"<tr><td class='section-header' colspan='{DAYS+1}'>Vehicles</td></tr>")
@@ -233,8 +244,8 @@ def build_grid() -> str:
         sub_info = " · ".join(filter(None, [spec_str, plate_str]))
         sub_line = f"<br><span style='font-size:7px;color:#999;padding-left:10px'>{sub_info}</span>" if sub_info else ""
         rows.append(
-            f"<tr><td class='name-cell' style='background:#fafafa'>"
-            f"🚚 <b style='font-size:9px'>{t['name']}</b>{sub_line}</td>"
+            f"<tr><td class='name-cell' style='background:#f5f5f5'>"
+            f"🚚 <b style='font-size:12px'>{t['name']}</b>{sub_line}</td>"
         )
         for d in dates:
             ds = d.isoformat()
@@ -252,7 +263,15 @@ def build_grid() -> str:
                 rows.append(f"<td class='{tc}'></td>")
         rows.append("</tr>")
 
-    # Blitz — at the bottom
+    # ISS subcontractors — at the bottom
+    if iss_h:
+        rows.append(
+            f"<tr><td class='section-header' colspan='{DAYS+1}' "
+            f"style='background:#f0f4ff;color:#336'>ISS Subcontractors</td></tr>"
+        )
+        _handler_rows(iss_h, rows)
+
+    # Blitz subcontractors — at the bottom
     if blitz_h:
         rows.append(
             f"<tr><td class='section-header' colspan='{DAYS+1}' "
@@ -277,7 +296,18 @@ with tab1:
 
     col1, col2 = st.columns(2)
     with col1:
-        client_name    = st.selectbox("Client *", [c["name"] for c in clients], key="nb_client")
+        # Client selectbox with color dot in the label
+        _cur_client = st.session_state.get("nb_client") or (clients[0]["name"] if clients else None)
+        _dot = ""
+        if _cur_client and _cur_client in client_map:
+            _col = client_map[_cur_client]["color"]
+            _dot = (f"<span style='display:inline-block;width:10px;height:10px;"
+                    f"border-radius:50%;background:{_col};vertical-align:middle;"
+                    f"margin-right:4px'></span>")
+        st.markdown(f"{_dot}**Client \\***", unsafe_allow_html=True)
+        client_name = st.selectbox(
+            "Client", [c["name"] for c in clients], key="nb_client", label_visibility="collapsed"
+        )
         project_number = st.text_input("Project Number *", placeholder="HAR-2026-XXX", key="nb_projnum")
         booking_date   = st.date_input("Date *", value=date.today(), key="nb_date")
         initials       = st.text_input("Your Initials *", max_chars=5, placeholder="AG", key="nb_initials")
@@ -299,17 +329,18 @@ with tab1:
         if h.get("hasBadgeLouvre"):   icons += "🏛"
         if h.get("canDriveTruck"):    icons += "🚛"
         if h.get("canDriveForklift"): icons += "🏗"
-        sub = "Sub" if h["type"] == "Subcontractor" else "Int"
-        suffix = (" · " + icons) if icons else ""
+        company = h.get("company") or ""
+        company_tag = f" · {company}" if company else ""
+        icon_tag = (" · " + icons) if icons else ""
         blocked = h["id"] in h_blocked_ids
         status = " ⛔" if blocked else ""
-        return f"{h['name']}  [{h['level']} · {sub}{suffix}]{status}"
+        return f"{h['name']}  [{h['level']}{company_tag}{icon_tag}]{status}"
 
     internal_h = [h for h in handlers if h["type"] == "Internal"]
-    ind_sub_h  = [h for h in handlers if h["type"] == "Subcontractor" and h.get("company") != db.BLITZ_COMPANY]
+    iss_h      = [h for h in handlers if h.get("company") == "ISS"]
     blitz_h    = [h for h in handlers if h.get("company") == db.BLITZ_COMPANY]
 
-    all_for_select = internal_h + ind_sub_h + blitz_h
+    all_for_select = internal_h + iss_h + blitz_h
     label_map = {make_label(h): h for h in all_for_select}
     available_labels = [make_label(h) for h in all_for_select if h["id"] not in h_blocked_ids]
     blocked_labels   = [make_label(h) for h in all_for_select if h["id"] in h_blocked_ids]
@@ -354,6 +385,7 @@ with tab1:
     # ── Split by company ──────────────────────────────────────────────────────
     blitz_sel = [h for h in selected_handlers if h.get("company") == db.BLITZ_COMPANY]
     own_sel   = [h for h in selected_handlers if h.get("company") != db.BLITZ_COMPANY]
+    # (own_sel includes both Internal and ISS handlers — ISS is booked directly)
     has_blitz = len(blitz_sel) > 0
 
     if has_blitz:

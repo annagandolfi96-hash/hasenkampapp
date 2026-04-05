@@ -105,6 +105,7 @@ def init_db():
     _seed_if_empty()
     _migrate_handlers()
     _migrate_trucks()
+    _migrate_iss_company()
 
 
 def _seed_if_empty():
@@ -127,8 +128,8 @@ def _seed_if_empty():
             ("h3",  "Clara Dubois",    "clara.dubois@hasenkamp.com",    "#27AE60", "Mid",    "Internal",      0,1,0,1, "",            ""),
             ("h4",  "Marcus Bauer",    "marcus.bauer@hasenkamp.com",    "#27AE60", "Mid",    "Internal",      1,1,1,0, "Louvre badge pending", ""),
             ("h5",  "Léa Fontaine",    "lea.fontaine@hasenkamp.com",    "#F39C12", "Junior", "Internal",      0,1,0,0, "",            ""),
-            ("h6",  "Ravi Patel",      "ravi.patel@freelance.com",      "#9B59B6", "Senior", "Subcontractor", 1,1,0,1, "",            ""),
-            ("h7",  "Yann Leclerc",    "yann.leclerc@freelance.com",    "#E74C3C", "Mid",    "Subcontractor", 1,1,0,1, "",            ""),
+            ("h6",  "Ravi Patel",      "ravi.patel@freelance.com",      "#9B59B6", "Senior", "Subcontractor", 1,1,0,1, "",            "ISS"),
+            ("h7",  "Yann Leclerc",    "yann.leclerc@freelance.com",    "#E74C3C", "Mid",    "Subcontractor", 1,1,0,1, "",            "ISS"),
             ("h8",  "Marco Ferretti",  "marco.ferretti@blitz.com",      "#E74C3C", "Mid",    "Subcontractor", 0,1,0,0, "",            "Blitz"),
             ("h9",  "Lena Schulz",     "lena.schulz@blitz.com",         "#E74C3C", "Mid",    "Subcontractor", 0,1,0,0, "",            "Blitz"),
             ("h10", "Tom Dupont",      "tom.dupont@blitz.com",          "#95A5A6", "Junior", "Subcontractor", 0,1,0,0, "",            "Blitz"),
@@ -187,11 +188,11 @@ def _migrate_handlers():
         ("h22", "Hugo Renard",      "hugo.renard@hasenkamp.com",      "#F39C12", "Junior", "Internal",      0,0,0,0, "",            ""),
         ("h23", "Elisa Simon",      "elisa.simon@hasenkamp.com",      "#F39C12", "Junior", "Internal",      0,1,0,0, "",            ""),
         # Independent Subcontractors — Senior/Mid
-        ("h24", "Dmitri Volkov",    "dmitri.volkov@artpro.eu",        "#9B59B6", "Senior", "Subcontractor", 1,1,1,0, "",            ""),
-        ("h25", "Amara Diallo",     "amara.diallo@artpro.eu",         "#9B59B6", "Senior", "Subcontractor", 0,1,0,1, "",            ""),
-        ("h26", "Carlos Rivera",    "carlos.rivera@artstaff.com",     "#E74C3C", "Mid",    "Subcontractor", 1,1,0,0, "",            ""),
-        ("h27", "Hana Novak",       "hana.novak@artstaff.com",        "#E74C3C", "Mid",    "Subcontractor", 0,1,0,0, "",            ""),
-        ("h28", "Stefan Braun",     "stefan.braun@artstaff.com",      "#E74C3C", "Mid",    "Subcontractor", 1,1,1,0, "",            ""),
+        ("h24", "Dmitri Volkov",    "dmitri.volkov@artpro.eu",        "#9B59B6", "Senior", "Subcontractor", 1,1,1,0, "",            "ISS"),
+        ("h25", "Amara Diallo",     "amara.diallo@artpro.eu",         "#9B59B6", "Senior", "Subcontractor", 0,1,0,1, "",            "ISS"),
+        ("h26", "Carlos Rivera",    "carlos.rivera@artstaff.com",     "#E74C3C", "Mid",    "Subcontractor", 1,1,0,0, "",            "ISS"),
+        ("h27", "Hana Novak",       "hana.novak@artstaff.com",        "#E74C3C", "Mid",    "Subcontractor", 0,1,0,0, "",            "ISS"),
+        ("h28", "Stefan Braun",     "stefan.braun@artstaff.com",      "#E74C3C", "Mid",    "Subcontractor", 1,1,1,0, "",            "ISS"),
         # Blitz — additional
         ("h29", "Kevin Osei",       "kevin.osei@blitz.com",           "#E74C3C", "Mid",    "Subcontractor", 0,1,0,0, "",            "Blitz"),
         ("h30", "Miriam Adler",     "miriam.adler@blitz.com",         "#95A5A6", "Junior", "Subcontractor", 0,1,0,0, "",            "Blitz"),
@@ -216,6 +217,15 @@ def _migrate_trucks():
                 "UPDATE Truck SET spec=? WHERE id=? AND (spec IS NULL OR spec='')",
                 (spec, tid)
             )
+
+
+def _migrate_iss_company():
+    """Tag existing non-Blitz subcontractors as ISS if company is blank."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE ArtHandler SET company='ISS' "
+            "WHERE type='Subcontractor' AND (company IS NULL OR company='')"
+        )
 
 
 def get_unavailable_handler_ids(date_str: str):
