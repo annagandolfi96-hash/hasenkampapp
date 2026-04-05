@@ -181,7 +181,31 @@ def _seed_if_empty():
         )
 
 
-# ── Clients ──────────────────────────────────────────────────────────────────
+def get_unavailable_handler_ids(date_str: str):
+    """Returns (unavail_ids, booked_ids) sets of handlerIds blocked on a given date."""
+    with get_conn() as conn:
+        unavail = {r[0] for r in conn.execute(
+            "SELECT handlerId FROM Unavailability WHERE date=?", (date_str,)
+        ).fetchall()}
+        booked = {r[0] for r in conn.execute(
+            "SELECT handlerId FROM Booking WHERE date=?", (date_str,)
+        ).fetchall()}
+    return unavail, booked
+
+
+def get_unavailable_truck_ids(date_str: str):
+    """Returns (unavail_ids, booked_ids) sets of truckIds blocked on a given date."""
+    with get_conn() as conn:
+        unavail = {r[0] for r in conn.execute(
+            "SELECT truckId FROM TruckUnavailability WHERE date=?", (date_str,)
+        ).fetchall()}
+        booked = {r[0] for r in conn.execute(
+            "SELECT truckId FROM TruckBooking WHERE date=?", (date_str,)
+        ).fetchall()}
+    return unavail, booked
+
+
+# ── Clients ───────────────────────────────────────────────────────────────────
 
 def get_clients():
     with get_conn() as conn:

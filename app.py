@@ -127,41 +127,25 @@ today_str = date.today().isoformat()
 
 
 # ── Grid ─────────────────────────────────────────────────────────────────────
-def build_grid() -> str:
-    rows = ["<table class='grid-table'><thead><tr>"]
-    rows.append("<th class='name-col'>Name</th>")
-    for d in dates:
-        ds = d.isoformat()
-        tc = " today-col" if ds == today_str else ""
-        rows.append(
-            f"<th class='{tc}'>{d.strftime('%a')}<br>"
-            f"<span style='color:#bbb;font-size:9px'>{d.strftime('%d/%m')}</span></th>"
-        )
-    rows.append("</tr></thead><tbody>")
-
-    # Art Handlers
-    rows.append(f"<tr><td class='section-header' colspan='{DAYS+1}'>Art Handlers</td></tr>")
-    for h in handlers:
+def _handler_rows(h_list, rows):
+    for h in h_list:
         name_bg = hex_to_rgba(h["color"], 0.18)
         icons = ""
-        if h.get("canDriveTruck"):   icons += "🚛"
+        if h.get("canDriveTruck"):    icons += "🚛"
         if h.get("canDriveForklift"): icons += "🏗"
-        if h.get("hasBadgeLouvre"):  icons += "🏛"
-        company_tag = ""
-        if h.get("company") == db.BLITZ_COMPANY:
-            company_tag = " <span style='font-size:9px;background:#fee;color:#c00;border-radius:2px;padding:0 2px'>B</span>"
+        if h.get("hasBadgeLouvre"):   icons += "🏛"
         sub = "Sub" if h["type"] == "Subcontractor" else "Int"
         rows.append(
             f"<tr><td class='name-cell' style='background:{name_bg}'>"
             f"<span style='display:inline-block;width:7px;height:7px;border-radius:50%;"
             f"background:{h['color']};margin-right:3px;vertical-align:middle'></span>"
-            f"<b>{h['name']}</b>{company_tag} {icons}<br>"
+            f"<b>{h['name']}</b> {icons}<br>"
             f"<span style='font-size:9px;color:#999;padding-left:10px'>{h['level']} · {sub}</span>"
             f"</td>"
         )
         for d in dates:
             ds = d.isoformat()
-            proj   = proj_by_handler.get((ds, h["id"]))
+            proj    = proj_by_handler.get((ds, h["id"]))
             unavail = unavail_by_handler.get((ds, h["id"]))
             tc = " today-col" if ds == today_str else ""
             if proj:
@@ -175,6 +159,28 @@ def build_grid() -> str:
             else:
                 rows.append(f"<td class='{tc}'></td>")
         rows.append("</tr>")
+
+
+def build_grid() -> str:
+    internal_h = [h for h in handlers if h["type"] == "Internal"]
+    ind_sub_h  = [h for h in handlers if h["type"] == "Subcontractor" and h.get("company") != db.BLITZ_COMPANY]
+    blitz_h    = [h for h in handlers if h.get("company") == db.BLITZ_COMPANY]
+
+    rows = ["<table class='grid-table'><thead><tr>"]
+    rows.append("<th class='name-col'>Name</th>")
+    for d in dates:
+        ds = d.isoformat()
+        tc = " today-col" if ds == today_str else ""
+        rows.append(
+            f"<th class='{tc}'>{d.strftime('%a')}<br>"
+            f"<span style='color:#bbb;font-size:9px'>{d.strftime('%d/%m')}</span></th>"
+        )
+    rows.append("</tr></thead><tbody>")
+
+    # Art Handlers (internal + independent sub)
+    rows.append(f"<tr><td class='section-header' colspan='{DAYS+1}'>Art Handlers</td></tr>")
+    _handler_rows(internal_h, rows)
+    _handler_rows(ind_sub_h, rows)
 
     # Vehicles
     rows.append(f"<tr><td class='section-header' colspan='{DAYS+1}'>Vehicles</td></tr>")
@@ -196,6 +202,14 @@ def build_grid() -> str:
             else:
                 rows.append(f"<td class='{tc}'></td>")
         rows.append("</tr>")
+
+    # Blitz — at the bottom
+    if blitz_h:
+        rows.append(
+            f"<tr><td class='section-header' colspan='{DAYS+1}' "
+            f"style='background:#fff0f0;color:#c00'>⚡ Blitz Subcontractors</td></tr>"
+        )
+        _handler_rows(blitz_h, rows)
 
     rows.append("</tbody></table>")
     return "".join(rows)
@@ -223,105 +237,176 @@ with tab1:
         description = st.text_area("Description", placeholder="Brief description of the work…",
                                    height=108, key="nb_desc")
 
-    handler_map = {h["name"]: h for h in handlers}
+    # ── Handler availability for selected date ────────────────────────────────
+    date_str = booking_date.isoformat()
+    h_unavail_ids, h_booked_ids = db.get_unavailable_handler_ids(date_str)
+    h_blocked_ids = h_unavail_ids | h_booked_ids
+    t_unavail_ids, t_booked_ids = db.get_unavailable_truck_ids(date_str)
+    t_blocked_ids = t_unavail_ids | t_booked_ids
+
+    internal_h = [h for h in handlers if h["type"] == "Internal"]
+    ind_sub_h  = [h for h in handlers if h["type"] == "Subcontractor"
+                  and h.get("company") != db.BLITZ_COMPANY]
+    blitz_h    = [h for h in handlers if h.get("company") == db.BLITZ_COMPANY]
+
+    # ── Handler selection cards ───────────────────────────────────────────────
     st.markdown("**Select Art Handlers \\***")
-    selected_handler_names = st.multiselect(
-        "Handlers", list(handler_map.keys()), label_visibility="collapsed", key="nb_handlers"
-    )
 
-    truck_map = {t["name"]: t for t in trucks}
+    selected_handler_ids = []
+
+    def render_handler_group(group, label):
+        if not group:
+            return
+        st.markdown(
+            f"<div style='font-size:11px;font-weight:700;color:#666;"
+            f"text-transform:uppercase;letter-spacing:.05em;margin:8px 0 4px'>"
+            f"{label}</div>",
+            unsafe_allow_html=True,
+        )
+        cols = st.columns(4)
+        for i, h in enumerate(group):
+            with cols[i % 4]:
+                blocked = h["id"] in h_blocked_ids
+                block_label = ""
+                if h["id"] in h_unavail_ids:
+                    block_label = "⛔ Unavailable"
+                elif h["id"] in h_booked_ids:
+                    block_label = "⛔ Already booked"
+
+                icons = []
+                if h.get("hasBadgeLouvre"):   icons.append("🏛")
+                if h.get("canDriveTruck"):     icons.append("🚛")
+                if h.get("canDriveForklift"):  icons.append("🏗")
+                icon_str = " ".join(icons) if icons else ""
+
+                dot_color = h["color"] if not blocked else "#ccc"
+                card_bg   = "#f5f5f5" if blocked else "white"
+                name_color = "#aaa" if blocked else "#111"
+
+                # Card-like container via markdown + checkbox
+                st.markdown(
+                    f"<div style='background:{card_bg};border:1px solid #e0e0e0;"
+                    f"border-radius:6px;padding:6px 8px;margin-bottom:2px'>"
+                    f"<span style='display:inline-block;width:8px;height:8px;"
+                    f"border-radius:50%;background:{dot_color};margin-right:4px;"
+                    f"vertical-align:middle'></span>"
+                    f"<span style='font-size:12px;font-weight:600;color:{name_color}'>"
+                    f"{h['name']}</span><br>"
+                    f"<span style='font-size:10px;color:#999;padding-left:12px'>"
+                    f"{h['level']} · {'Sub' if h['type']=='Subcontractor' else 'Int'}"
+                    f"{' · ' + icon_str if icon_str else ''}</span>"
+                    f"{'<br><span style=\"font-size:10px;color:#c00;padding-left:12px\">' + block_label + '</span>' if block_label else ''}"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+                key = f"hsel_{date_str}_{h['id']}"
+                checked = st.checkbox(
+                    "Select",
+                    key=key,
+                    disabled=blocked,
+                    label_visibility="collapsed",
+                )
+                if checked and not blocked:
+                    selected_handler_ids.append(h["id"])
+
+    render_handler_group(internal_h, "Internal")
+    render_handler_group(ind_sub_h,  "Independent Subcontractors")
+    render_handler_group(blitz_h,    "⚡ Blitz")
+
+    # ── Truck selection ───────────────────────────────────────────────────────
     st.markdown("**Assign Vehicles** (optional)")
-    selected_truck_names = st.multiselect(
-        "Trucks", list(truck_map.keys()), label_visibility="collapsed", key="nb_trucks"
-    )
+    truck_cols = st.columns(len(trucks) if trucks else 1)
+    selected_truck_ids = []
+    for i, t in enumerate(trucks):
+        with truck_cols[i]:
+            t_blocked = t["id"] in t_blocked_ids
+            t_label   = "⛔ Unavailable" if t["id"] in t_unavail_ids else ("⛔ Booked" if t["id"] in t_booked_ids else "")
+            st.markdown(
+                f"<div style='background:{'#f5f5f5' if t_blocked else 'white'};"
+                f"border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-bottom:2px'>"
+                f"<span style='font-size:12px;font-weight:600;color:{'#aaa' if t_blocked else '#111'}'>"
+                f"🚚 {t['name']}</span>"
+                f"{'<br><span style=\"font-size:10px;color:#c00\">' + t_label + '</span>' if t_label else ''}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            tkey = f"tsel_{date_str}_{t['id']}"
+            if st.checkbox("Select", key=tkey, disabled=t_blocked, label_visibility="collapsed"):
+                selected_truck_ids.append(t["id"])
 
-    # Split selected handlers into internal/blitz/other-sub
-    selected_handlers = [handler_map[n] for n in selected_handler_names]
-    blitz_handlers    = [h for h in selected_handlers if h.get("company") == db.BLITZ_COMPANY]
-    own_handlers      = [h for h in selected_handlers if h.get("company") != db.BLITZ_COMPANY]
-
-    has_blitz = len(blitz_handlers) > 0
+    # ── Split by company ──────────────────────────────────────────────────────
+    handler_map   = {h["id"]: h for h in handlers}
+    sel_handlers  = [handler_map[hid] for hid in selected_handler_ids]
+    blitz_sel     = [h for h in sel_handlers if h.get("company") == db.BLITZ_COMPANY]
+    own_sel       = [h for h in sel_handlers if h.get("company") != db.BLITZ_COMPANY]
+    has_blitz     = len(blitz_sel) > 0
 
     if has_blitz:
-        st.info(
-            f"⚡ **{len(blitz_handlers)} Blitz handler(s) selected:** "
-            + ", ".join(h["name"] for h in blitz_handlers)
-        )
+        st.info(f"⚡ **{len(blitz_sel)} Blitz handler(s) selected:** " + ", ".join(h["name"] for h in blitz_sel))
 
     def build_booking_title():
-        client = client_map.get(client_name)
-        if not client or not project_number or not initials:
+        if not client_name or not project_number or not initials:
             return ""
-        names = [h["name"].split()[0] for h in own_handlers]
-        blitz_count = len(blitz_handlers)
-        team_str = ", ".join(names)
-        if blitz_count:
-            team_str += f" + {blitz_count} Blitz"
+        names      = [h["name"].split()[0] for h in own_sel]
+        team_str   = ", ".join(names)
+        if has_blitz:
+            team_str += f" + {len(blitz_sel)} Blitz"
         return f"{initials} - {client_name} - {team_str} - {project_number}"
 
     def do_create_booking(status: str):
-        if not client_name or not project_number or not selected_handler_names or not initials:
+        if not client_name or not project_number or not selected_handler_ids or not initials:
             st.error("Please fill in client, project number, initials and select at least one handler.")
             return
-        client = client_map[client_name]
-        all_handler_ids = [h["id"] for h in selected_handlers]
-        truck_ids       = [truck_map[n]["id"] for n in selected_truck_names]
-        title           = build_booking_title()
+        title = build_booking_title()
         db.create_project(
             {
                 "projectNumber": project_number,
                 "title":         title,
-                "clientId":      client["id"],
+                "clientId":      client_map[client_name]["id"],
                 "description":   description,
                 "location":      location,
-                "date":          booking_date.isoformat(),
+                "date":          date_str,
                 "status":        status,
                 "createdBy":     initials,
             },
-            all_handler_ids,
-            truck_ids,
+            selected_handler_ids,
+            selected_truck_ids,
         )
-        label = "Confirmed" if status == "BOOKED" else "Pre-booked"
-        st.success(f"✅ {label}: {title}")
+        st.success(f"✅ {'Confirmed' if status == 'BOOKED' else 'Pre-booked'}: {title}")
         st.rerun()
+
+    title_preview = build_booking_title()
+    if title_preview:
+        st.caption(f"Invite title: **{title_preview}**")
 
     st.markdown("")
 
     if has_blitz:
-        # ── Blitz availability email ──────────────────────────────────────────
         bcol1, bcol2 = st.columns(2)
-
         with bcol1:
             if st.button("📧 Check Blitz Availability", use_container_width=True, type="secondary"):
                 st.session_state["show_blitz_email"] = True
-
         with bcol2:
             if st.button("✅ Book the Team", use_container_width=True, type="primary"):
                 do_create_booking("BOOKED")
 
         if st.session_state.get("show_blitz_email"):
-            blitz_names = [h["name"] for h in blitz_handlers]
+            blitz_names = [h["name"] for h in blitz_sel]
             date_fmt    = booking_date.strftime("%A %d %B %Y")
             subject     = f"Availability Check – {client_name} – {date_fmt} – {project_number}"
             body        = "\n".join([
-                f"Dear Prabah,",
-                "",
-                f"I hope you're well. Could you please confirm the availability of the following "
-                f"Blitz art handlers for the project below?",
-                "",
+                "Dear Prabah,", "",
+                "I hope you're well. Could you please confirm the availability of the "
+                "following Blitz art handlers for the project below?", "",
                 "Handlers needed:",
-                *[f"  • {n}" for n in blitz_names],
-                "",
+                *[f"  • {n}" for n in blitz_names], "",
                 f"Project:     {project_number}",
                 f"Client:      {client_name}",
                 f"Date:        {date_fmt}",
                 f"Location:    {location or 'TBC'}",
-                f"Description: {description or '—'}",
-                "",
-                "Please confirm at your earliest convenience.",
-                "",
-                f"Best regards,",
-                f"{initials}",
+                f"Description: {description or '—'}", "",
+                "Please confirm at your earliest convenience.", "",
+                "Best regards,", initials,
             ])
             mailto = (
                 f"mailto:{db.PRABAH_EMAIL}"
@@ -330,7 +415,7 @@ with tab1:
             )
             with st.expander("📧 Email to Prabah (Blitz)", expanded=True):
                 st.markdown(f"**To:** `{db.PRABAH_EMAIL}`")
-                st.markdown(f"**Subject:**")
+                st.markdown("**Subject:**")
                 st.code(subject, language=None)
                 st.markdown("**Body:**")
                 st.code(body, language=None)
@@ -338,9 +423,7 @@ with tab1:
                 if st.button("Close", key="close_blitz_email"):
                     st.session_state["show_blitz_email"] = False
                     st.rerun()
-
     else:
-        # No Blitz — standard pre-book / confirm buttons
         bcol1, bcol2 = st.columns(2)
         with bcol1:
             if st.button("Pre-book", use_container_width=True):
@@ -348,10 +431,6 @@ with tab1:
         with bcol2:
             if st.button("✅ Confirm Booking", use_container_width=True, type="primary"):
                 do_create_booking("BOOKED")
-
-    title_preview = build_booking_title()
-    if title_preview:
-        st.caption(f"Invite title: **{title_preview}**")
 
 # ── Tab 2: Mark Unavailable ───────────────────────────────────────────────────
 with tab2:
