@@ -72,9 +72,26 @@ st.markdown("""
 
 # ── Session state ─────────────────────────────────────────────────────────────
 if "start_date" not in st.session_state:
-    st.session_state.start_date = date.today()
+    # Start from the 1st of the current month
+    st.session_state.start_date = date.today().replace(day=1)
 
-DAYS = 28
+# Show 3 full months from the start date
+import calendar as _cal
+def _months_of_days(start: date, n_months: int) -> int:
+    """Total days spanning n_months calendar months from start."""
+    d = start
+    total = 0
+    for _ in range(n_months):
+        days_in_month = _cal.monthrange(d.year, d.month)[1]
+        total += days_in_month
+        # advance to next month
+        if d.month == 12:
+            d = d.replace(year=d.year + 1, month=1, day=1)
+        else:
+            d = d.replace(month=d.month + 1, day=1)
+    return total
+
+DAYS = _months_of_days(st.session_state.start_date, 3)
 
 
 def hex_to_rgba(hex_color: str, alpha: float) -> str:
@@ -96,25 +113,27 @@ def hex_to_opaque_tint(hex_color: str, alpha: float = 0.15) -> str:
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown("## 🖼️ Art Handler Schedule")
 
-c1, c2, c3, c4, _ = st.columns([1, 1, 1, 4, 4])
-with c1:
-    if st.button("← Prev", use_container_width=True):
-        st.session_state.start_date -= timedelta(days=DAYS)
-        st.rerun()
-with c2:
-    if st.button("Today", use_container_width=True):
-        st.session_state.start_date = date.today()
-        st.rerun()
-with c3:
-    if st.button("Next →", use_container_width=True):
-        st.session_state.start_date += timedelta(days=DAYS)
+# Month jump — pick any month to start the 3-month scrollable view
+_hcol1, _hcol2 = st.columns([2, 8])
+with _hcol1:
+    _jump = st.date_input(
+        "Start month",
+        value=st.session_state.start_date,
+        key="month_jump",
+        label_visibility="collapsed",
+        help="Pick a date to jump to that month",
+    )
+    _jump_first = _jump.replace(day=1)
+    if _jump_first != st.session_state.start_date:
+        st.session_state.start_date = _jump_first
         st.rerun()
 
 dates = [st.session_state.start_date + timedelta(days=i) for i in range(DAYS)]
-with c4:
+with _hcol2:
     st.markdown(
         f"<div style='padding-top:6px;color:#555;font-size:13px'>"
-        f"{dates[0].strftime('%d %b')} – {dates[-1].strftime('%d %b %Y')}</div>",
+        f"Showing {dates[0].strftime('%B %Y')} → {dates[-1].strftime('%B %Y')}"
+        f" &nbsp;·&nbsp; scroll the grid horizontally to move between months</div>",
         unsafe_allow_html=True,
     )
 
@@ -174,7 +193,7 @@ def _handler_rows(h_list, rows):
             f"<tr><td class='name-cell' style='background:{name_bg}'>"
             f"<span style='display:inline-block;width:6px;height:6px;border-radius:50%;"
             f"background:{h['color']};margin-right:2px;vertical-align:middle'></span>"
-            f"<b style='font-size:12px'>{h['name']}</b>"
+            f"<b style='font-size:12px;color:#111'>{h['name']}</b>"
             f"{(' ' + icons) if icons else ''}<br>"
             f"<span style='font-size:7px;color:#999;padding-left:8px'>"
             f"{h['level']}{(' · ' + sub_label) if sub_label else ''}</span>"
@@ -245,7 +264,7 @@ def build_grid() -> str:
         sub_line = f"<br><span style='font-size:7px;color:#999;padding-left:10px'>{sub_info}</span>" if sub_info else ""
         rows.append(
             f"<tr><td class='name-cell' style='background:#f5f5f5'>"
-            f"🚚 <b style='font-size:12px'>{t['name']}</b>{sub_line}</td>"
+            f"🚚 <b style='font-size:12px;color:#111'>{t['name']}</b>{sub_line}</td>"
         )
         for d in dates:
             ds = d.isoformat()
