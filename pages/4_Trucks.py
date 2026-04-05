@@ -12,7 +12,8 @@ cols = st.columns(3)
 for i, t in enumerate(trucks):
     with cols[i % 3]:
         with st.container(border=True):
-            st.markdown(f"### 🚚 {t['name']}")
+            spec_label = f" · {t['spec']}" if t.get("spec") else ""
+            st.markdown(f"### 🚚 {t['name']}{spec_label}")
             if t["licensePlate"]:
                 st.code(t["licensePlate"], language=None)
             tc1, tc2 = st.columns(2)
@@ -40,6 +41,8 @@ with st.form("truck_form", clear_on_submit=not editing):
                          placeholder="Van 1, Truck 7.5T…")
     plate = st.text_input("License Plate", value=editing["licensePlate"] if editing and editing["licensePlate"] else "",
                           placeholder="75-ART-001")
+    spec = st.text_input("Spec", value=editing.get("spec", "") if editing else "",
+                         placeholder="Sprinter, 3 ton, 10 ton…")
     submitted = st.form_submit_button(
         "Save" if editing else "Add Vehicle", type="primary", use_container_width=True
     )
@@ -49,10 +52,10 @@ if submitted:
         st.error("Vehicle name is required.")
     else:
         if editing:
-            db.update_truck(editing["id"], name, plate)
+            db.update_truck(editing["id"], name, plate, spec)
             del st.session_state["editing_truck"]
             st.success(f"Updated {name}")
         else:
-            db.create_truck(name, plate)
+            db.create_truck(name, plate, spec)
             st.success(f"Added {name}")
         st.rerun()

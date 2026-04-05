@@ -1,5 +1,6 @@
 import streamlit as st
 from datetime import date, timedelta
+from itertools import groupby
 import db
 
 st.set_page_config(
@@ -13,36 +14,59 @@ db.init_db()
 # ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-.grid-table { border-collapse: collapse; width: 100%; font-size: 11px; }
-.grid-table th {
-    background: #1a1a2e; color: white; padding: 4px 4px;
-    border: 1px solid #333; white-space: nowrap; text-align: center;
-    font-weight: 600; min-width: 58px; max-width: 58px; width: 58px;
+.grid-wrap {
+    overflow: auto;
+    max-height: 72vh;
+    border: 1px solid #ccc;
+    border-radius: 4px;
 }
+.grid-table { border-collapse: collapse; font-size: 9px; }
+.grid-table th {
+    position: sticky; top: 0; z-index: 2;
+    background: #1a1a2e; color: white;
+    padding: 2px 2px; border: 1px solid #333;
+    white-space: nowrap; text-align: center;
+    font-weight: 600; width: 38px; min-width: 38px; max-width: 38px;
+}
+.grid-table thead tr:nth-child(2) th { top: 20px; }
 .grid-table th.name-col {
-    text-align: left; min-width: 150px; max-width: 150px; width: 150px;
+    position: sticky; left: 0; top: 0; z-index: 4;
+    text-align: left; width: 130px; min-width: 130px; max-width: 130px;
+}
+.grid-table thead tr:nth-child(2) th.name-col { top: 20px; }
+.grid-table th.month-col {
+    font-size: 10px; font-weight: 700; letter-spacing: .04em;
+    background: #12122a; border-bottom: 1px solid #444;
 }
 .grid-table td {
-    border: 1px solid #ddd; padding: 2px 3px; text-align: center;
-    height: 32px; vertical-align: middle;
-    min-width: 58px; max-width: 58px; width: 58px;
+    border: 1px solid #e0e0e0; padding: 1px 2px; text-align: center;
+    height: 22px; vertical-align: middle;
+    width: 38px; min-width: 38px; max-width: 38px;
 }
 .grid-table td.name-cell {
-    text-align: left; white-space: nowrap; font-weight: 500;
-    min-width: 150px; max-width: 150px; width: 150px; overflow: hidden;
+    position: sticky; left: 0; z-index: 1;
+    text-align: left; white-space: nowrap;
+    font-weight: 500; overflow: hidden;
+    width: 130px; min-width: 130px; max-width: 130px;
+    padding: 1px 4px; background: #fafafa;
 }
 .grid-table td.section-header {
-    background: #e8e8e8; font-weight: 700; font-size: 10px;
+    position: sticky; left: 0; z-index: 1;
+    background: #e8e8e8; font-weight: 700; font-size: 9px;
     color: #555; text-transform: uppercase; letter-spacing: 0.06em;
-    text-align: left; padding: 3px 6px; min-width: unset; max-width: unset; width: auto;
+    text-align: left; padding: 2px 4px;
+    width: auto; max-width: unset; min-width: unset;
 }
-.booked-num    { font-weight: 700; font-size: 13px; color: #1a1a1a; }
-.prebooked-num { font-weight: 700; font-size: 13px; color: #e07b00; }
-.unavail-text  { font-size: 9px; color: #aaa; }
+.grid-table tr td.section-header ~ td {
+    background: #f0f0f0;
+}
+.booked-num    { font-weight: 700; font-size: 10px; color: #1a1a1a; }
+.prebooked-num { font-weight: 700; font-size: 10px; color: #e07b00; }
+.unavail-text  { font-size: 7px; color: #aaa; }
 .today-col     { outline: 2px solid #4A90D9; outline-offset: -2px; }
-.legend { display:flex; gap:14px; flex-wrap:wrap; align-items:center;
+.legend { display:flex; gap:12px; flex-wrap:wrap; align-items:center;
           font-size:11px; color:#555; margin-bottom:6px; }
-.ldot { width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:3px; }
+.ldot { width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:3px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -50,7 +74,7 @@ st.markdown("""
 if "start_date" not in st.session_state:
     st.session_state.start_date = date.today()
 
-DAYS = 14
+DAYS = 28
 
 
 def hex_to_rgba(hex_color: str, alpha: float) -> str:
@@ -129,7 +153,7 @@ today_str = date.today().isoformat()
 # ── Grid ─────────────────────────────────────────────────────────────────────
 def _handler_rows(h_list, rows):
     for h in h_list:
-        name_bg = hex_to_rgba(h["color"], 0.18)
+        name_bg = hex_to_rgba(h["color"], 0.15)
         icons = ""
         if h.get("canDriveTruck"):    icons += "🚛"
         if h.get("canDriveForklift"): icons += "🏗"
@@ -137,10 +161,11 @@ def _handler_rows(h_list, rows):
         sub = "Sub" if h["type"] == "Subcontractor" else "Int"
         rows.append(
             f"<tr><td class='name-cell' style='background:{name_bg}'>"
-            f"<span style='display:inline-block;width:7px;height:7px;border-radius:50%;"
-            f"background:{h['color']};margin-right:3px;vertical-align:middle'></span>"
-            f"<b>{h['name']}</b> {icons}<br>"
-            f"<span style='font-size:9px;color:#999;padding-left:10px'>{h['level']} · {sub}</span>"
+            f"<span style='display:inline-block;width:6px;height:6px;border-radius:50%;"
+            f"background:{h['color']};margin-right:2px;vertical-align:middle'></span>"
+            f"<b style='font-size:9px'>{h['name']}</b>"
+            f"{(' ' + icons) if icons else ''}<br>"
+            f"<span style='font-size:7px;color:#999;padding-left:8px'>{h['level']} · {sub}</span>"
             f"</td>"
         )
         for d in dates:
@@ -154,7 +179,7 @@ def _handler_rows(h_list, rows):
                 count = len(proj["bookings"])
                 rows.append(f"<td style='background:{bg}' class='{tc}'><span class='{num_cls}'>{count}</span></td>")
             elif unavail:
-                reason = (unavail.get("reason") or "N/A")[:5]
+                reason = (unavail.get("reason") or "")[:4]
                 rows.append(f"<td style='background:#111' class='{tc}'><span class='unavail-text'>{reason}</span></td>")
             else:
                 rows.append(f"<td class='{tc}'></td>")
@@ -166,16 +191,34 @@ def build_grid() -> str:
     ind_sub_h  = [h for h in handlers if h["type"] == "Subcontractor" and h.get("company") != db.BLITZ_COMPANY]
     blitz_h    = [h for h in handlers if h.get("company") == db.BLITZ_COMPANY]
 
-    rows = ["<table class='grid-table'><thead><tr>"]
-    rows.append("<th class='name-col'>Name</th>")
+    # Group dates by month for the top header row
+    month_groups = [
+        (month, list(ds_group))
+        for month, ds_group in groupby(dates, key=lambda d: d.strftime("%B %Y"))
+    ]
+
+    rows = ["<div class='grid-wrap'><table class='grid-table'><thead>"]
+
+    # ── Row 1: Month headers ──────────────────────────────────────────────────
+    rows.append("<tr>")
+    rows.append("<th class='name-col month-col' rowspan='2'>Name</th>")
+    for month_name, month_dates in month_groups:
+        rows.append(
+            f"<th class='month-col' colspan='{len(month_dates)}'>{month_name}</th>"
+        )
+    rows.append("</tr>")
+
+    # ── Row 2: Day headers ────────────────────────────────────────────────────
+    rows.append("<tr>")
     for d in dates:
         ds = d.isoformat()
         tc = " today-col" if ds == today_str else ""
         rows.append(
             f"<th class='{tc}'>{d.strftime('%a')}<br>"
-            f"<span style='color:#bbb;font-size:9px'>{d.strftime('%d/%m')}</span></th>"
+            f"<span style='color:#bbb;font-size:7px'>{d.strftime('%d')}</span></th>"
         )
-    rows.append("</tr></thead><tbody>")
+    rows.append("</tr>")
+    rows.append("</thead><tbody>")
 
     # Art Handlers (internal + independent sub)
     rows.append(f"<tr><td class='section-header' colspan='{DAYS+1}'>Art Handlers</td></tr>")
@@ -185,8 +228,14 @@ def build_grid() -> str:
     # Vehicles
     rows.append(f"<tr><td class='section-header' colspan='{DAYS+1}'>Vehicles</td></tr>")
     for t in trucks:
-        plate = f"<br><span style='font-size:9px;color:#999;padding-left:18px'>{t['licensePlate'] or ''}</span>"
-        rows.append(f"<tr><td class='name-cell' style='background:#fafafa'>🚚 <b>{t['name']}</b>{plate}</td>")
+        spec_str = t.get("spec") or ""
+        plate_str = t.get("licensePlate") or ""
+        sub_info = " · ".join(filter(None, [spec_str, plate_str]))
+        sub_line = f"<br><span style='font-size:7px;color:#999;padding-left:10px'>{sub_info}</span>" if sub_info else ""
+        rows.append(
+            f"<tr><td class='name-cell' style='background:#fafafa'>"
+            f"🚚 <b style='font-size:9px'>{t['name']}</b>{sub_line}</td>"
+        )
         for d in dates:
             ds = d.isoformat()
             proj    = proj_by_truck.get((ds, t["id"]))
@@ -197,7 +246,7 @@ def build_grid() -> str:
                 num_cls = "booked-num" if proj["status"] == "BOOKED" else "prebooked-num"
                 rows.append(f"<td style='background:{bg}' class='{tc}'><span class='{num_cls}'>✓</span></td>")
             elif unavail:
-                reason = (unavail.get("reason") or "N/A")[:5]
+                reason = (unavail.get("reason") or "")[:4]
                 rows.append(f"<td style='background:#111' class='{tc}'><span class='unavail-text'>{reason}</span></td>")
             else:
                 rows.append(f"<td class='{tc}'></td>")
@@ -211,7 +260,7 @@ def build_grid() -> str:
         )
         _handler_rows(blitz_h, rows)
 
-    rows.append("</tbody></table>")
+    rows.append("</tbody></table></div>")
     return "".join(rows)
 
 
@@ -244,88 +293,56 @@ with tab1:
     t_unavail_ids, t_booked_ids = db.get_unavailable_truck_ids(date_str)
     t_blocked_ids = t_unavail_ids | t_booked_ids
 
+    # ── Handler multiselect with rich labels ──────────────────────────────────
+    def make_label(h):
+        icons = ""
+        if h.get("hasBadgeLouvre"):   icons += "🏛"
+        if h.get("canDriveTruck"):    icons += "🚛"
+        if h.get("canDriveForklift"): icons += "🏗"
+        sub = "Sub" if h["type"] == "Subcontractor" else "Int"
+        suffix = (" · " + icons) if icons else ""
+        blocked = h["id"] in h_blocked_ids
+        status = " ⛔" if blocked else ""
+        return f"{h['name']}  [{h['level']} · {sub}{suffix}]{status}"
+
     internal_h = [h for h in handlers if h["type"] == "Internal"]
-    ind_sub_h  = [h for h in handlers if h["type"] == "Subcontractor"
-                  and h.get("company") != db.BLITZ_COMPANY]
+    ind_sub_h  = [h for h in handlers if h["type"] == "Subcontractor" and h.get("company") != db.BLITZ_COMPANY]
     blitz_h    = [h for h in handlers if h.get("company") == db.BLITZ_COMPANY]
 
-    # ── Handler selection cards ───────────────────────────────────────────────
+    all_for_select = internal_h + ind_sub_h + blitz_h
+    label_map = {make_label(h): h for h in all_for_select}
+    available_labels = [make_label(h) for h in all_for_select if h["id"] not in h_blocked_ids]
+    blocked_labels   = [make_label(h) for h in all_for_select if h["id"] in h_blocked_ids]
+
     st.markdown("**Select Art Handlers \\***")
-
-    selected_handler_ids = []
-
-    def render_handler_group(group, label):
-        if not group:
-            return
-        st.markdown(
-            f"<div style='font-size:11px;font-weight:700;color:#666;"
-            f"text-transform:uppercase;letter-spacing:.05em;margin:8px 0 4px'>"
-            f"{label}</div>",
-            unsafe_allow_html=True,
-        )
-        cols = st.columns(4)
-        for i, h in enumerate(group):
-            with cols[i % 4]:
-                blocked = h["id"] in h_blocked_ids
-                block_label = ""
-                if h["id"] in h_unavail_ids:
-                    block_label = "⛔ Unavailable"
-                elif h["id"] in h_booked_ids:
-                    block_label = "⛔ Already booked"
-
-                icons = []
-                if h.get("hasBadgeLouvre"):   icons.append("🏛")
-                if h.get("canDriveTruck"):     icons.append("🚛")
-                if h.get("canDriveForklift"):  icons.append("🏗")
-                icon_str = " ".join(icons) if icons else ""
-
-                dot_color = h["color"] if not blocked else "#ccc"
-                card_bg   = "#f5f5f5" if blocked else "white"
-                name_color = "#aaa" if blocked else "#111"
-
-                # Card-like container via markdown + checkbox
-                st.markdown(
-                    f"<div style='background:{card_bg};border:1px solid #e0e0e0;"
-                    f"border-radius:6px;padding:6px 8px;margin-bottom:2px'>"
-                    f"<span style='display:inline-block;width:8px;height:8px;"
-                    f"border-radius:50%;background:{dot_color};margin-right:4px;"
-                    f"vertical-align:middle'></span>"
-                    f"<span style='font-size:12px;font-weight:600;color:{name_color}'>"
-                    f"{h['name']}</span><br>"
-                    f"<span style='font-size:10px;color:#999;padding-left:12px'>"
-                    f"{h['level']} · {'Sub' if h['type']=='Subcontractor' else 'Int'}"
-                    f"{' · ' + icon_str if icon_str else ''}</span>"
-                    f"{'<br><span style=\"font-size:10px;color:#c00;padding-left:12px\">' + block_label + '</span>' if block_label else ''}"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-                key = f"hsel_{date_str}_{h['id']}"
-                checked = st.checkbox(
-                    "Select",
-                    key=key,
-                    disabled=blocked,
-                    label_visibility="collapsed",
-                )
-                if checked and not blocked:
-                    selected_handler_ids.append(h["id"])
-
-    render_handler_group(internal_h, "Internal")
-    render_handler_group(ind_sub_h,  "Independent Subcontractors")
-    render_handler_group(blitz_h,    "⚡ Blitz")
+    selected_labels = st.multiselect(
+        "Art Handlers",
+        options=available_labels + blocked_labels,
+        default=[],
+        key=f"nb_handlers_{date_str}",
+        label_visibility="collapsed",
+        help="Handlers marked ⛔ are unavailable or already booked on this date.",
+    )
+    # Prevent selecting blocked handlers
+    selected_labels = [l for l in selected_labels if l not in blocked_labels]
+    selected_handlers = [label_map[l] for l in selected_labels if l in label_map]
+    selected_handler_ids = [h["id"] for h in selected_handlers]
 
     # ── Truck selection ───────────────────────────────────────────────────────
     st.markdown("**Assign Vehicles** (optional)")
-    truck_cols = st.columns(len(trucks) if trucks else 1)
+    truck_cols = st.columns(min(len(trucks), 4)) if trucks else st.columns(1)
     selected_truck_ids = []
     for i, t in enumerate(trucks):
-        with truck_cols[i]:
+        with truck_cols[i % 4]:
             t_blocked = t["id"] in t_blocked_ids
-            t_label   = "⛔ Unavailable" if t["id"] in t_unavail_ids else ("⛔ Booked" if t["id"] in t_booked_ids else "")
+            t_label = "⛔ Unavailable" if t["id"] in t_unavail_ids else ("⛔ Booked" if t["id"] in t_booked_ids else "")
+            spec_str = t.get("spec") or ""
             st.markdown(
                 f"<div style='background:{'#f5f5f5' if t_blocked else 'white'};"
                 f"border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-bottom:2px'>"
                 f"<span style='font-size:12px;font-weight:600;color:{'#aaa' if t_blocked else '#111'}'>"
                 f"🚚 {t['name']}</span>"
+                f"{'<br><span style=\"font-size:10px;color:#777\">' + spec_str + '</span>' if spec_str else ''}"
                 f"{'<br><span style=\"font-size:10px;color:#c00\">' + t_label + '</span>' if t_label else ''}"
                 f"</div>",
                 unsafe_allow_html=True,
@@ -335,11 +352,9 @@ with tab1:
                 selected_truck_ids.append(t["id"])
 
     # ── Split by company ──────────────────────────────────────────────────────
-    handler_map   = {h["id"]: h for h in handlers}
-    sel_handlers  = [handler_map[hid] for hid in selected_handler_ids]
-    blitz_sel     = [h for h in sel_handlers if h.get("company") == db.BLITZ_COMPANY]
-    own_sel       = [h for h in sel_handlers if h.get("company") != db.BLITZ_COMPANY]
-    has_blitz     = len(blitz_sel) > 0
+    blitz_sel = [h for h in selected_handlers if h.get("company") == db.BLITZ_COMPANY]
+    own_sel   = [h for h in selected_handlers if h.get("company") != db.BLITZ_COMPANY]
+    has_blitz = len(blitz_sel) > 0
 
     if has_blitz:
         st.info(f"⚡ **{len(blitz_sel)} Blitz handler(s) selected:** " + ", ".join(h["name"] for h in blitz_sel))
@@ -347,8 +362,8 @@ with tab1:
     def build_booking_title():
         if not client_name or not project_number or not initials:
             return ""
-        names      = [h["name"].split()[0] for h in own_sel]
-        team_str   = ", ".join(names)
+        names    = [h["name"].split()[0] for h in own_sel]
+        team_str = ", ".join(names)
         if has_blitz:
             team_str += f" + {len(blitz_sel)} Blitz"
         return f"{initials} - {client_name} - {team_str} - {project_number}"
@@ -497,7 +512,8 @@ with tab3:
                     if p["truckBookings"]:
                         st.markdown("**Vehicles:**")
                         for b in p["truckBookings"]:
-                            st.markdown(f"- 🚚 {b['truckName']} {b['licensePlate'] or ''}")
+                            spec = f" ({b['spec']})" if b.get("spec") else ""
+                            st.markdown(f"- 🚚 {b['truckName']}{spec} {b['licensePlate'] or ''}")
 
                 with col2:
                     if p["status"] == "PRE_BOOKED":
@@ -506,11 +522,11 @@ with tab3:
                             st.rerun()
 
                     # ── Outlook invite (own handlers only) ────────────────────
-                    own_emails     = "; ".join(b["handlerEmail"] for b in own_bookings)
-                    blitz_names    = [b["handlerName"] for b in blitz_bookings]
-                    own_names      = [b["handlerName"] for b in own_bookings]
-                    first_names    = [n.split()[0] for n in own_names]
-                    blitz_count    = len(blitz_bookings)
+                    own_emails  = "; ".join(b["handlerEmail"] for b in own_bookings)
+                    blitz_names = [b["handlerName"] for b in blitz_bookings]
+                    own_names   = [b["handlerName"] for b in own_bookings]
+                    first_names = [n.split()[0] for n in own_names]
+                    blitz_count = len(blitz_bookings)
 
                     team_str = ", ".join(first_names)
                     if blitz_count:
@@ -533,7 +549,10 @@ with tab3:
                     if blitz_names:
                         body_lines += [f"  • {n} (Blitz)" for n in blitz_names]
                     if p["truckBookings"]:
-                        body_lines += ["", "Vehicles:"] + [f"  • {b['truckName']}" for b in p["truckBookings"]]
+                        body_lines += ["", "Vehicles:"] + [
+                            f"  • {b['truckName']}{' (' + b['spec'] + ')' if b.get('spec') else ''}"
+                            for b in p["truckBookings"]
+                        ]
                     body_lines += ["", "Please bring your signed delivery note."]
                     body = "\n".join(body_lines)
 
