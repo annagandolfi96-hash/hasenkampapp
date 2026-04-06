@@ -64,6 +64,15 @@ st.markdown("""
 .prebooked-num { font-weight: 700; font-size: 10px; color: #e07b00; }
 .unavail-text  { font-size: 7px; color: #aaa; }
 .today-col     { outline: 2px solid #4A90D9; outline-offset: -2px; }
+.grid-table td.clickable { padding: 0; cursor: pointer; }
+.grid-table td.clickable a {
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; height: 22px; text-decoration: none;
+    color: transparent; font-size: 13px; font-weight: 300;
+}
+.grid-table td.clickable a:hover {
+    color: #4A90D9; background: rgba(74,144,217,0.13);
+}
 .legend { display:flex; gap:12px; flex-wrap:wrap; align-items:center;
           font-size:11px; color:#555; margin-bottom:6px; }
 .ldot { width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:3px; }
@@ -171,6 +180,9 @@ st.markdown("""
 # ── Load data ─────────────────────────────────────────────────────────────────
 handlers     = db.get_handlers()
 trucks       = db.get_trucks()
+clients      = db.get_clients()
+client_map   = {c["name"]: c for c in clients}
+handler_map  = {h["id"]: h for h in handlers}
 
 # Pre-compute expiry sets for calendar flags
 _louvre_expiry = {r["id"]: r["louvre_badge_expiry"]
@@ -247,7 +259,10 @@ def _handler_rows(h_list, rows):
                 reason = (unavail.get("reason") or "")[:4]
                 rows.append(f"<td style='background:#111' class='{tc}'><span class='unavail-text'>{reason}</span></td>")
             else:
-                rows.append(f"<td class='{tc}'></td>")
+                rows.append(
+                    f"<td class='clickable{(' ' + tc) if tc else ''}'>"
+                    f"<a href='?qb_handler={h['id']}&qb_date={ds}'>+</a></td>"
+                )
         rows.append("</tr>")
 
 
@@ -345,6 +360,87 @@ def build_grid() -> str:
     return "".join(rows)
 
 
+# ── Quick-booking panel (triggered by clicking a cell) ────────────────────────
+_qb_hid  = st.query_params.get("qb_handler")
+_qb_date = st.query_params.get("qb_date")
+
+if _qb_hid and _qb_date and _qb_hid in handler_map:
+    _qb_h = handler_map[_qb_hid]
+    try:
+        _qb_date_obj = date.fromisoformat(_qb_date)
+        _qb_date_fmt = _qb_date_obj.strftime("%A %d %B %Y")
+    except Exception:
+        _qb_date_fmt = _qb_date
+
+    # Check if still free (someone may have just booked this slot)
+    _qa_unavail, _qa_booked = db.get_unavailable_handler_ids(_qb_date)
+    _still_free = _qb_hid not in (_qa_unavail | _qa_booked)
+
+    qb_color = hex_to_opaque_tint(_qb_h["color"], 0.25)
+    st.markdown(
+        f"<div style='background:{qb_color};border:2px solid {_qb_h['color']};"
+        f"border-radius:8px;padding:10px 16px;margin-bottom:8px'>"
+        f"<b style='font-size:15px'>Quick Booking</b> &nbsp;·&nbsp; "
+        f"<b>{_qb_h['name']}</b> &nbsp;·&nbsp; {_qb_date_fmt}"
+        + (f"&nbsp; <span style='color:#c00;font-size:12px'>⚠ No longer available</span>"
+           if not _still_free else "")
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+    if not _still_free:
+        if st.button("← Back to calendar", key="qb_back_unavail"):
+            st.query_params.clear()
+            st.rerun()
+    else:
+        with st.form("quick_book_form"):
+            qf1, qf2, qf3 = st.columns(3)
+            with qf1:
+                _qb_client_names = [c["name"] for c in clients]
+                _qb_client_colors = {c["name"]: c["color"] for c in clients}
+                def _qb_fmt(n): return f"{hex_to_circle_emoji(_qb_client_colors.get(n,'#888'))} {n}"
+                qb_client  = st.selectbox("Client *", _qb_client_names, format_func=_qb_fmt)
+                qb_projnum = st.text_input("Project Number *", placeholder="HAR-2026-XXX")
+            with qf2:
+                qb_initials = st.text_input("Your Initials *", max_chars=5, placeholder="AG")
+                qb_location = st.text_input("Location", placeholder="Louvre Museum, Paris")
+            with qf3:
+                qb_desc = st.text_area("Description", height=88,
+                                       placeholder="Brief description…")
+
+            btn_pre, btn_confirm, btn_cancel = st.columns(3)
+            with btn_pre:
+                do_prebook  = st.form_submit_button("Pre-book", use_container_width=True)
+            with btn_confirm:
+                do_confirm  = st.form_submit_button("✅ Confirm Booking", type="primary",
+                                                    use_container_width=True)
+            with btn_cancel:
+                do_cancel   = st.form_submit_button("Cancel", use_container_width=True)
+
+        if do_cancel:
+            st.query_params.clear()
+            st.rerun()
+
+        if do_prebook or do_confirm:
+            if not qb_client or not qb_projnum or not qb_initials:
+                st.error("Client, project number and initials are required.")
+            else:
+                _status = "BOOKED" if do_confirm else "PRE_BOOKED"
+                _hname  = _qb_h["name"].split()[0]
+                _title  = f"{qb_initials} - {qb_client} - {_hname} - {qb_projnum}"
+                db.create_project(
+                    {"projectNumber": qb_projnum, "title": _title,
+                     "clientId": client_map[qb_client]["id"],
+                     "description": qb_desc, "location": qb_location,
+                     "date": _qb_date, "status": _status, "createdBy": qb_initials},
+                    [_qb_hid], [],
+                )
+                st.success(f"{'Confirmed' if do_confirm else 'Pre-booked'}: **{_title}**")
+                st.query_params.clear()
+                st.rerun()
+
+    st.divider()
+
 st.markdown(build_grid(), unsafe_allow_html=True)
 st.divider()
 
@@ -353,9 +449,6 @@ tab1, tab2, tab3 = st.tabs(["📋 New Booking", "🚫 Mark Unavailable", "📁 V
 
 # ── Tab 1: New Booking ────────────────────────────────────────────────────────
 with tab1:
-    clients    = db.get_clients()
-    client_map = {c["name"]: c for c in clients}
-
     col1, col2 = st.columns(2)
     with col1:
         # Build format_func that prepends a colour-matched circle emoji to each client name
@@ -436,15 +529,16 @@ with tab1:
         with truck_cols[i % 4]:
             t_blocked = t["id"] in t_blocked_ids
             t_label = "⛔ Unavailable" if t["id"] in t_unavail_ids else ("⛔ Booked" if t["id"] in t_booked_ids else "")
-            spec_str = t.get("spec") or ""
+            spec_str   = t.get("spec") or ""
+            _t_spec_h  = f'<br><span style="font-size:10px;color:#777">{spec_str}</span>' if spec_str else ''
+            _t_label_h = f'<br><span style="font-size:10px;color:#c00">{t_label}</span>' if t_label else ''
+            _t_bg      = '#f5f5f5' if t_blocked else 'white'
+            _t_nc      = '#aaa' if t_blocked else '#111'
             st.markdown(
-                f"<div style='background:{'#f5f5f5' if t_blocked else 'white'};"
-                f"border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-bottom:2px'>"
-                f"<span style='font-size:12px;font-weight:600;color:{'#aaa' if t_blocked else '#111'}'>"
-                f"🚚 {t['name']}</span>"
-                f"{'<br><span style=\"font-size:10px;color:#777\">' + spec_str + '</span>' if spec_str else ''}"
-                f"{'<br><span style=\"font-size:10px;color:#c00\">' + t_label + '</span>' if t_label else ''}"
-                f"</div>",
+                f"<div style='background:{_t_bg};border:1px solid #e0e0e0;"
+                f"border-radius:6px;padding:6px 8px;margin-bottom:2px'>"
+                f"<span style='font-size:12px;font-weight:600;color:{_t_nc}'>"
+                f"🚚 {t['name']}</span>{_t_spec_h}{_t_label_h}</div>",
                 unsafe_allow_html=True,
             )
             tkey = f"tsel_{date_str}_{t['id']}"
