@@ -154,6 +154,12 @@ st.markdown("""
 # ── Load data ─────────────────────────────────────────────────────────────────
 handlers     = db.get_handlers()
 trucks       = db.get_trucks()
+
+# Pre-compute expiry sets for calendar flags
+_louvre_expiry = {r["id"]: r["louvre_badge_expiry"]
+                  for r in db.get_handlers_with_expiring_louvre(60)}
+_service_due   = {r["id"]: r["service_due"]
+                  for r in db.get_trucks_with_upcoming_service(60)}
 projects     = db.get_projects_in_range(st.session_state.start_date, DAYS)
 handler_unavail, truck_unavail = db.get_unavailabilities_in_range(
     st.session_state.start_date, DAYS
@@ -188,7 +194,17 @@ def _handler_rows(h_list, rows):
         if h.get("canDriveForklift"): icons += "🏗"
         if h.get("hasBadgeLouvre"):   icons += "🏛"
         company = h.get("company") or ""
-        sub_label = company if company else ""  # ISS, Blitz, or blank for internal
+        sub_label = company if company else ""
+        # Louvre badge expiry flag
+        louvre_flag = ""
+        if h["id"] in _louvre_expiry:
+            try:
+                from datetime import date as _d
+                exp = _d.fromisoformat(_louvre_expiry[h["id"]])
+                louvre_flag = (f"<br><span style='font-size:7px;color:#c00;padding-left:8px'>"
+                               f"⚠ Louvre exp. {exp.strftime('%d/%m/%Y')}</span>")
+            except Exception:
+                pass
         rows.append(
             f"<tr><td class='name-cell' style='background:{name_bg}'>"
             f"<span style='display:inline-block;width:6px;height:6px;border-radius:50%;"
@@ -197,6 +213,7 @@ def _handler_rows(h_list, rows):
             f"{(' ' + icons) if icons else ''}<br>"
             f"<span style='font-size:7px;color:#999;padding-left:8px'>"
             f"{h['level']}{(' · ' + sub_label) if sub_label else ''}</span>"
+            f"{louvre_flag}"
             f"</td>"
         )
         for d in dates:
@@ -262,9 +279,18 @@ def build_grid() -> str:
         plate_str = t.get("licensePlate") or ""
         sub_info = " · ".join(filter(None, [spec_str, plate_str]))
         sub_line = f"<br><span style='font-size:7px;color:#999;padding-left:10px'>{sub_info}</span>" if sub_info else ""
+        svc_flag = ""
+        if t["id"] in _service_due:
+            try:
+                from datetime import date as _d
+                svc = _d.fromisoformat(_service_due[t["id"]])
+                svc_flag = (f"<br><span style='font-size:7px;color:#c00;padding-left:10px'>"
+                            f"⚠ Service {svc.strftime('%d/%m/%Y')}</span>")
+            except Exception:
+                pass
         rows.append(
             f"<tr><td class='name-cell' style='background:#f5f5f5'>"
-            f"🚚 <b style='font-size:12px;color:#111'>{t['name']}</b>{sub_line}</td>"
+            f"🚚 <b style='font-size:12px;color:#111'>{t['name']}</b>{sub_line}{svc_flag}</td>"
         )
         for d in dates:
             ds = d.isoformat()

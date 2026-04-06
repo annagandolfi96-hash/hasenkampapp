@@ -27,7 +27,11 @@ def init_db():
             CREATE TABLE IF NOT EXISTS Client (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
-                color TEXT NOT NULL
+                color TEXT NOT NULL,
+                contact_person TEXT DEFAULT '',
+                contact_email TEXT DEFAULT '',
+                contact_phone TEXT DEFAULT '',
+                notes TEXT DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS ArtHandler (
                 id TEXT PRIMARY KEY,
@@ -41,13 +45,17 @@ def init_db():
                 canDriveForklift INTEGER DEFAULT 0,
                 hasBadgeLouvre INTEGER DEFAULT 0,
                 notes TEXT,
-                company TEXT DEFAULT ''
+                company TEXT DEFAULT '',
+                employee_id TEXT DEFAULT '',
+                louvre_badge_expiry TEXT DEFAULT '',
+                emirates_id_photo TEXT DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS Truck (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 licensePlate TEXT,
-                spec TEXT DEFAULT ''
+                spec TEXT DEFAULT '',
+                service_due TEXT DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS Project (
                 id TEXT PRIMARY KEY,
@@ -93,15 +101,25 @@ def init_db():
             );
         """)
         # Migrations for existing databases
-        for col in ["company TEXT DEFAULT ''", "notes TEXT"]:
+        for col in ["company TEXT DEFAULT ''", "notes TEXT",
+                    "employee_id TEXT DEFAULT ''",
+                    "louvre_badge_expiry TEXT DEFAULT ''",
+                    "emirates_id_photo TEXT DEFAULT ''"]:
             try:
                 conn.execute(f"ALTER TABLE ArtHandler ADD COLUMN {col}")
             except Exception:
                 pass
-        try:
-            conn.execute("ALTER TABLE Truck ADD COLUMN spec TEXT DEFAULT ''")
-        except Exception:
-            pass
+        for col in ["spec TEXT DEFAULT ''", "service_due TEXT DEFAULT ''"]:
+            try:
+                conn.execute(f"ALTER TABLE Truck ADD COLUMN {col}")
+            except Exception:
+                pass
+        for col in ["contact_person TEXT DEFAULT ''", "contact_email TEXT DEFAULT ''",
+                    "contact_phone TEXT DEFAULT ''", "notes TEXT DEFAULT ''"]:
+            try:
+                conn.execute(f"ALTER TABLE Client ADD COLUMN {col}")
+            except Exception:
+                pass
     _seed_if_empty()
     _migrate_handlers()
     _migrate_trucks()
@@ -114,36 +132,36 @@ def _seed_if_empty():
             return
 
         clients = [
-            ("client-louvre",      "Louvre",          "#FFD700"),
-            ("client-tate",        "Tate Modern",     "#90EE90"),
-            ("client-guggenheim",  "Guggenheim",      "#ADD8E6"),
-            ("client-orsay",       "Musée d'Orsay",   "#FFB347"),
+            ("client-louvre",      "Louvre",          "#FFD700", "", "", "", ""),
+            ("client-tate",        "Tate Modern",     "#90EE90", "", "", "", ""),
+            ("client-guggenheim",  "Guggenheim",      "#ADD8E6", "", "", "", ""),
+            ("client-orsay",       "Musée d'Orsay",   "#FFB347", "", "", "", ""),
         ]
-        conn.executemany("INSERT INTO Client VALUES (?,?,?)", clients)
+        conn.executemany("INSERT INTO Client VALUES (?,?,?,?,?,?,?)", clients)
 
-        # (id, name, email, color, level, type, truck, car, forklift, louvre, notes, company)
+        # (id, name, email, color, level, type, truck, car, forklift, louvre, notes, company, emp_id, louvre_exp, eid_photo)
         handlers = [
-            ("h1",  "Sophie Martin",   "sophie.martin@hasenkamp.com",   "#4A90D9", "Senior", "Internal",      1,1,1,1, "Team leader", ""),
-            ("h2",  "James Thornton",  "james.thornton@hasenkamp.com",  "#4A90D9", "Senior", "Internal",      1,1,0,1, "",            ""),
-            ("h3",  "Clara Dubois",    "clara.dubois@hasenkamp.com",    "#27AE60", "Mid",    "Internal",      0,1,0,1, "",            ""),
-            ("h4",  "Marcus Bauer",    "marcus.bauer@hasenkamp.com",    "#27AE60", "Mid",    "Internal",      1,1,1,0, "Louvre badge pending", ""),
-            ("h5",  "Léa Fontaine",    "lea.fontaine@hasenkamp.com",    "#F39C12", "Junior", "Internal",      0,1,0,0, "",            ""),
-            ("h6",  "Ravi Patel",      "ravi.patel@freelance.com",      "#9B59B6", "Senior", "Subcontractor", 1,1,0,1, "",            "ISS"),
-            ("h7",  "Yann Leclerc",    "yann.leclerc@freelance.com",    "#E74C3C", "Mid",    "Subcontractor", 1,1,0,1, "",            "ISS"),
-            ("h8",  "Marco Ferretti",  "marco.ferretti@blitz.com",      "#E74C3C", "Mid",    "Subcontractor", 0,1,0,0, "",            "Blitz"),
-            ("h9",  "Lena Schulz",     "lena.schulz@blitz.com",         "#E74C3C", "Mid",    "Subcontractor", 0,1,0,0, "",            "Blitz"),
-            ("h10", "Tom Dupont",      "tom.dupont@blitz.com",          "#95A5A6", "Junior", "Subcontractor", 0,1,0,0, "",            "Blitz"),
-            ("h11", "Sara Okonkwo",    "sara.okonkwo@blitz.com",        "#95A5A6", "Junior", "Subcontractor", 0,0,0,0, "",            "Blitz"),
+            ("h1",  "Sophie Martin",   "sophie.martin@hasenkamp.com",   "#4A90D9", "Senior", "Internal",      1,1,1,1, "Team leader", "", "","",""),
+            ("h2",  "James Thornton",  "james.thornton@hasenkamp.com",  "#4A90D9", "Senior", "Internal",      1,1,0,1, "",            "", "","",""),
+            ("h3",  "Clara Dubois",    "clara.dubois@hasenkamp.com",    "#27AE60", "Mid",    "Internal",      0,1,0,1, "",            "", "","",""),
+            ("h4",  "Marcus Bauer",    "marcus.bauer@hasenkamp.com",    "#27AE60", "Mid",    "Internal",      1,1,1,0, "Louvre badge pending", "", "","",""),
+            ("h5",  "Léa Fontaine",    "lea.fontaine@hasenkamp.com",    "#F39C12", "Junior", "Internal",      0,1,0,0, "",            "", "","",""),
+            ("h6",  "Ravi Patel",      "ravi.patel@freelance.com",      "#9B59B6", "Senior", "Subcontractor", 1,1,0,1, "",            "ISS", "","",""),
+            ("h7",  "Yann Leclerc",    "yann.leclerc@freelance.com",    "#E74C3C", "Mid",    "Subcontractor", 1,1,0,1, "",            "ISS", "","",""),
+            ("h8",  "Marco Ferretti",  "marco.ferretti@blitz.com",      "#E74C3C", "Mid",    "Subcontractor", 0,1,0,0, "",            "Blitz", "","",""),
+            ("h9",  "Lena Schulz",     "lena.schulz@blitz.com",         "#E74C3C", "Mid",    "Subcontractor", 0,1,0,0, "",            "Blitz", "","",""),
+            ("h10", "Tom Dupont",      "tom.dupont@blitz.com",          "#95A5A6", "Junior", "Subcontractor", 0,1,0,0, "",            "Blitz", "","",""),
+            ("h11", "Sara Okonkwo",    "sara.okonkwo@blitz.com",        "#95A5A6", "Junior", "Subcontractor", 0,0,0,0, "",            "Blitz", "","",""),
         ]
-        conn.executemany("INSERT INTO ArtHandler VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", handlers)
+        conn.executemany("INSERT INTO ArtHandler VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", handlers)
 
         trucks = [
-            ("t1", "Van 1",       "75-ART-001", "Sprinter"),
-            ("t2", "Van 2",       "75-ART-002", "Sprinter"),
-            ("t3", "Truck 3T",    "75-ART-003", "3 ton"),
-            ("t4", "Truck 10T",   "75-ART-004", "10 ton"),
+            ("t1", "Van 1",       "75-ART-001", "Sprinter", ""),
+            ("t2", "Van 2",       "75-ART-002", "Sprinter", ""),
+            ("t3", "Truck 3T",    "75-ART-003", "3 ton",    ""),
+            ("t4", "Truck 10T",   "75-ART-004", "10 ton",   ""),
         ]
-        conn.executemany("INSERT INTO Truck VALUES (?,?,?,?)", trucks)
+        conn.executemany("INSERT INTO Truck VALUES (?,?,?,?,?)", trucks)
 
         today = date.today()
         d2 = (today + timedelta(days=2)).isoformat()
@@ -202,7 +220,9 @@ def _migrate_handlers():
         existing = {r[0] for r in conn.execute("SELECT id FROM ArtHandler").fetchall()}
         for h in new_handlers:
             if h[0] not in existing:
-                conn.execute("INSERT INTO ArtHandler VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", h)
+                # pad to 15 cols (add employee_id, louvre_badge_expiry, emirates_id_photo)
+                row = h + ("", "", "") if len(h) == 12 else h
+                conn.execute("INSERT INTO ArtHandler VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row)
 
 
 def _migrate_trucks():
@@ -252,14 +272,21 @@ def get_clients():
     with get_conn() as conn:
         return [dict(r) for r in conn.execute("SELECT * FROM Client ORDER BY name").fetchall()]
 
-def create_client(name, color):
+def create_client(name, color, contact_person="", contact_email="", contact_phone="", notes=""):
     import uuid
     with get_conn() as conn:
-        conn.execute("INSERT INTO Client VALUES (?,?,?)", (str(uuid.uuid4()), name, color))
+        conn.execute(
+            "INSERT INTO Client VALUES (?,?,?,?,?,?,?)",
+            (str(uuid.uuid4()), name, color, contact_person, contact_email, contact_phone, notes)
+        )
 
-def update_client(id, name, color):
+def update_client(id, name, color, contact_person="", contact_email="", contact_phone="", notes=""):
     with get_conn() as conn:
-        conn.execute("UPDATE Client SET name=?, color=? WHERE id=?", (name, color, id))
+        conn.execute(
+            "UPDATE Client SET name=?,color=?,contact_person=?,contact_email=?,"
+            "contact_phone=?,notes=? WHERE id=?",
+            (name, color, contact_person, contact_email, contact_phone, notes, id)
+        )
 
 def delete_client(id):
     with get_conn() as conn:
@@ -278,23 +305,28 @@ def create_handler(data: dict):
     import uuid
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO ArtHandler VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO ArtHandler VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (str(uuid.uuid4()), data["name"], data["email"], data["color"],
              data["level"], data["type"], int(data["canDriveTruck"]),
              int(data["canDriveCar"]), int(data["canDriveForklift"]),
-             int(data["hasBadgeLouvre"]), data.get("notes",""), data.get("company","")),
+             int(data["hasBadgeLouvre"]), data.get("notes",""), data.get("company",""),
+             data.get("employee_id",""), data.get("louvre_badge_expiry",""),
+             data.get("emirates_id_photo","")),
         )
 
 def update_handler(id, data: dict):
     with get_conn() as conn:
         conn.execute(
             """UPDATE ArtHandler SET name=?,email=?,color=?,level=?,type=?,
-               canDriveTruck=?,canDriveCar=?,canDriveForklift=?,hasBadgeLouvre=?,notes=?,company=?
+               canDriveTruck=?,canDriveCar=?,canDriveForklift=?,hasBadgeLouvre=?,
+               notes=?,company=?,employee_id=?,louvre_badge_expiry=?,emirates_id_photo=?
                WHERE id=?""",
             (data["name"], data["email"], data["color"], data["level"], data["type"],
              int(data["canDriveTruck"]), int(data["canDriveCar"]),
              int(data["canDriveForklift"]), int(data["hasBadgeLouvre"]),
-             data.get("notes",""), data.get("company",""), id),
+             data.get("notes",""), data.get("company",""),
+             data.get("employee_id",""), data.get("louvre_badge_expiry",""),
+             data.get("emirates_id_photo",""), id),
         )
 
 def delete_handler(id):
@@ -308,15 +340,16 @@ def get_trucks():
     with get_conn() as conn:
         return [dict(r) for r in conn.execute("SELECT * FROM Truck ORDER BY name").fetchall()]
 
-def create_truck(name, license_plate, spec=""):
+def create_truck(name, license_plate, spec="", service_due=""):
     import uuid
     with get_conn() as conn:
-        conn.execute("INSERT INTO Truck VALUES (?,?,?,?)", (str(uuid.uuid4()), name, license_plate, spec))
+        conn.execute("INSERT INTO Truck VALUES (?,?,?,?,?)",
+                     (str(uuid.uuid4()), name, license_plate, spec, service_due))
 
-def update_truck(id, name, license_plate, spec=""):
+def update_truck(id, name, license_plate, spec="", service_due=""):
     with get_conn() as conn:
-        conn.execute("UPDATE Truck SET name=?,licensePlate=?,spec=? WHERE id=?",
-                     (name, license_plate, spec, id))
+        conn.execute("UPDATE Truck SET name=?,licensePlate=?,spec=?,service_due=? WHERE id=?",
+                     (name, license_plate, spec, service_due, id))
 
 def delete_truck(id):
     with get_conn() as conn:
@@ -410,3 +443,27 @@ def set_truck_unavailable(truck_id, date_str, reason):
 def remove_truck_unavailability(truck_id, date_str):
     with get_conn() as conn:
         conn.execute("DELETE FROM TruckUnavailability WHERE truckId=? AND date=?", (truck_id, date_str))
+
+
+# ── Expiry helpers (used by calendar flags) ───────────────────────────────────
+
+def get_handlers_with_expiring_louvre(warn_days: int = 60):
+    """Return handlers whose Louvre badge expires within warn_days from today."""
+    today = date.today()
+    cutoff = (today + timedelta(days=warn_days)).isoformat()
+    with get_conn() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT id, name, louvre_badge_expiry FROM ArtHandler "
+            "WHERE hasBadgeLouvre=1 AND louvre_badge_expiry != '' "
+            "AND louvre_badge_expiry <= ?", (cutoff,)
+        ).fetchall()]
+
+def get_trucks_with_upcoming_service(warn_days: int = 60):
+    """Return trucks whose service is due within warn_days from today."""
+    today = date.today()
+    cutoff = (today + timedelta(days=warn_days)).isoformat()
+    with get_conn() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT id, name, service_due FROM Truck "
+            "WHERE service_due != '' AND service_due <= ?", (cutoff,)
+        ).fetchall()]
