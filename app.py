@@ -101,7 +101,6 @@ def hex_to_rgba(hex_color: str, alpha: float) -> str:
 
 
 def hex_to_opaque_tint(hex_color: str, alpha: float = 0.15) -> str:
-    """Blend hex color with white at given alpha — returns a solid rgb() color."""
     h = hex_color.lstrip("#")
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     r2 = int(255 * (1 - alpha) + r * alpha)
@@ -110,8 +109,26 @@ def hex_to_opaque_tint(hex_color: str, alpha: float = 0.15) -> str:
     return f"rgb({r2},{g2},{b2})"
 
 
+def hex_to_circle_emoji(hex_color: str) -> str:
+    """Map a hex colour to the nearest coloured-circle emoji."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    mx, mn = max(r, g, b), min(r, g, b)
+    if mx - mn < 40:
+        return "⚫" if mx < 100 else ("⚪" if mx > 200 else "⚫")
+    if r >= g and r >= b:
+        return "🟠" if g > 120 else "🔴"
+    if g >= r and g >= b:
+        return "🟢"
+    if b >= r and b >= g:
+        return "🔵"
+    if r >= b and g >= b:
+        return "🟡"
+    return "🟣"
+
+
 # ── Header ────────────────────────────────────────────────────────────────────
-st.markdown("## 🖼️ Art Handler Schedule")
+st.markdown("## Art Handler Schedule")
 
 # Month jump — pick any month to start the 3-month scrollable view
 _hcol1, _hcol2 = st.columns([2, 8])
@@ -192,7 +209,7 @@ def _handler_rows(h_list, rows):
         icons = ""
         if h.get("canDriveTruck"):    icons += "🚛"
         if h.get("canDriveForklift"): icons += "🏗"
-        if h.get("hasBadgeLouvre"):   icons += "🏛"
+        if h.get("hasBadgeLouvre"):   icons += "🏛L"
         company = h.get("company") or ""
         sub_label = company if company else ""
         # Louvre badge expiry flag
@@ -341,7 +358,12 @@ with tab1:
 
     col1, col2 = st.columns(2)
     with col1:
-        # Client selectbox with color dot in the label
+        # Build format_func that prepends a colour-matched circle emoji to each client name
+        _client_color_map = {c["name"]: c["color"] for c in clients}
+        def _fmt_client(name):
+            return f"{hex_to_circle_emoji(_client_color_map.get(name, '#888'))} {name}"
+
+        # Label shows the exact hex-colour dot of the current selection
         _cur_client = st.session_state.get("nb_client") or (clients[0]["name"] if clients else None)
         _dot = ""
         if _cur_client and _cur_client in client_map:
@@ -351,7 +373,9 @@ with tab1:
                     f"margin-right:4px'></span>")
         st.markdown(f"{_dot}**Client \\***", unsafe_allow_html=True)
         client_name = st.selectbox(
-            "Client", [c["name"] for c in clients], key="nb_client", label_visibility="collapsed"
+            "Client", [c["name"] for c in clients],
+            format_func=_fmt_client,
+            key="nb_client", label_visibility="collapsed",
         )
         project_number = st.text_input("Project Number *", placeholder="HAR-2026-XXX", key="nb_projnum")
         booking_date   = st.date_input("Date *", value=date.today(), key="nb_date")
@@ -371,7 +395,7 @@ with tab1:
     # ── Handler multiselect with rich labels ──────────────────────────────────
     def make_label(h):
         icons = ""
-        if h.get("hasBadgeLouvre"):   icons += "🏛"
+        if h.get("hasBadgeLouvre"):   icons += "🏛L"
         if h.get("canDriveTruck"):    icons += "🚛"
         if h.get("canDriveForklift"): icons += "🏗"
         company = h.get("company") or ""

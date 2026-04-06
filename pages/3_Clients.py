@@ -4,7 +4,7 @@ import db
 st.set_page_config(page_title="B · Clients — Hasenkamp", layout="wide")
 db.init_db()
 
-st.markdown("## 🏛️ Section B — Client Management")
+st.markdown("## Section B — Client Management")
 
 clients = db.get_clients()
 

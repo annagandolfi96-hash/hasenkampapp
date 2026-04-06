@@ -15,7 +15,7 @@ LEVEL_COLORS = {
 }
 WARN_DAYS = 60  # flag Louvre badge expiry within this many days
 
-st.markdown("## 👷 Section C — Art Handler Profiles")
+st.markdown("## Section C — Art Handler Profiles")
 
 handlers = db.get_handlers()
 today = date.today()
@@ -86,7 +86,7 @@ for (htype, level) in GROUP_ORDER:
                     if h["canDriveForklift"]: badges.append("🏗 Forklift")
                     if h["hasBadgeLouvre"]:
                         exp_str = f" (exp. {h['louvre_badge_expiry']})" if h.get("louvre_badge_expiry") else ""
-                        badges.append(f"🏛 Louvre{exp_str}")
+                        badges.append(f"🏛L Louvre{exp_str}")
                     if badges:
                         st.caption(" · ".join(badges))
                     if louvre_warn:
@@ -143,25 +143,41 @@ with st.form("handler_form", clear_on_submit=not editing):
         )
         company = st.text_input(
             "Company",
-            value=editing.get("company","") if editing else "",
+            value=editing.get("company") or "" if editing else "",
             placeholder="ISS, Blitz, or leave blank",
         )
 
-    st.markdown("**IDs & Documents**")
-    r2c1, r2c2 = st.columns(2)
+    st.markdown("**Louvre Badge & IDs**")
+    r2c1, r2c2, r2c3 = st.columns(3)
     with r2c1:
+        louvre = st.checkbox("🏛L Has Louvre Badge",
+                             value=bool(editing["hasBadgeLouvre"]) if editing else False)
+        _default_exp = None
+        if editing and (editing.get("louvre_badge_expiry") or ""):
+            try:
+                _default_exp = date.fromisoformat(editing["louvre_badge_expiry"])
+            except Exception:
+                pass
+        louvre_expiry_date = st.date_input(
+            "Louvre Badge Expiry",
+            value=_default_exp,
+            min_value=date(2020, 1, 1),
+            key="louvre_exp_input",
+        )
+        clear_expiry = st.checkbox("Clear expiry date", value=False, key="clear_louvre_exp")
+    with r2c2:
         employee_id = st.text_input(
             "Employee / Staff ID",
-            value=editing.get("employee_id","") if editing else "",
+            value=editing.get("employee_id") or "" if editing else "",
             placeholder="HAR-0042",
         )
-    with r2c2:
+    with r2c3:
         emirates_uploader = st.file_uploader(
             "Emirates ID Photo (JPG/PNG)",
             type=["jpg","jpeg","png"],
             key=f"eid_upload_{editing['id'] if editing else 'new'}",
         )
-        if editing and editing.get("emirates_id_photo"):
+        if editing and (editing.get("emirates_id_photo") or ""):
             p = os.path.join(UPLOADS_DIR, editing["emirates_id_photo"])
             if os.path.exists(p):
                 st.image(p, width=160, caption="Current Emirates ID")
@@ -169,34 +185,19 @@ with st.form("handler_form", clear_on_submit=not editing):
     st.markdown("**Skills & Licences**")
     sc1, sc2, sc3 = st.columns(3)
     with sc1:
-        can_truck = st.checkbox("🚛 Drives Truck",    value=bool(editing["canDriveTruck"])    if editing else False)
-        can_car   = st.checkbox("🚗 Drives Car",      value=bool(editing["canDriveCar"])      if editing else False)
+        can_truck = st.checkbox("🚛 Drives Truck",
+                                value=bool(editing["canDriveTruck"]) if editing else False)
+        can_car   = st.checkbox("🚗 Drives Car",
+                                value=bool(editing["canDriveCar"])   if editing else False)
     with sc2:
-        can_fork  = st.checkbox("🏗 Forklift",        value=bool(editing["canDriveForklift"]) if editing else False)
+        can_fork  = st.checkbox("🏗 Forklift",
+                                value=bool(editing["canDriveForklift"]) if editing else False)
     with sc3:
-        louvre    = st.checkbox("🏛 Louvre Badge",    value=bool(editing["hasBadgeLouvre"])   if editing else False)
-
-    st.markdown("**Louvre Badge Expiry**")
-    lb_col1, lb_col2 = st.columns(2)
-    with lb_col1:
-        _default_exp = None
-        if editing and editing.get("louvre_badge_expiry"):
-            try:
-                _default_exp = date.fromisoformat(editing["louvre_badge_expiry"])
-            except Exception:
-                pass
-        louvre_expiry_date = st.date_input(
-            "Expiry Date (leave blank if no badge / unknown)",
-            value=_default_exp,
-            min_value=date(2020, 1, 1),
-            key="louvre_exp_input",
-        )
-    with lb_col2:
-        clear_expiry = st.checkbox("Clear expiry date", value=False, key="clear_louvre_exp")
+        pass  # Louvre badge moved to IDs section above
 
     notes = st.text_input(
         "Notes",
-        value=editing["notes"] if editing and editing.get("notes") else "",
+        value=editing.get("notes") or "" if editing else "",
         placeholder="First aider, team leader, special access…",
     )
 

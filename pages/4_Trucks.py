@@ -7,7 +7,7 @@ db.init_db()
 
 WARN_DAYS = 60  # flag service due within this many days
 
-st.markdown("## 🚚 Section D — Vehicles")
+st.markdown("## Section D — Vehicles")
 
 trucks = db.get_trucks()
 today = date.today()
