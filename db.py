@@ -382,7 +382,10 @@ def get_projects_in_range(start: date, days: int):
             ).fetchall()]
         return projects
 
-def create_project(data: dict, handler_ids: list, truck_ids: list):
+def create_project(data: dict, handler_ids: list, truck_ids: list,
+                   handler_date_pairs=None):
+    """handler_date_pairs: list of (handler_id, date_str) tuples.
+    Falls back to pairing each handler_id with data['date'] if not provided."""
     import uuid
     pid = str(uuid.uuid4())
     with get_conn() as conn:
@@ -392,9 +395,11 @@ def create_project(data: dict, handler_ids: list, truck_ids: list):
              data.get("description"), data.get("location"), data["date"],
              data.get("status","PRE_BOOKED"), data["createdBy"]),
         )
-        for hid in handler_ids:
+        pairs = handler_date_pairs if handler_date_pairs is not None \
+                else [(hid, data["date"]) for hid in handler_ids]
+        for hid, hdate in pairs:
             conn.execute("INSERT INTO Booking VALUES (?,?,?,?)",
-                         (str(uuid.uuid4()), pid, hid, data["date"]))
+                         (str(uuid.uuid4()), pid, hid, hdate))
         for tid in truck_ids:
             conn.execute("INSERT INTO TruckBooking VALUES (?,?,?,?)",
                          (str(uuid.uuid4()), pid, tid, data["date"]))

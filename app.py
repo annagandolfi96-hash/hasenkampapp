@@ -64,15 +64,16 @@ st.markdown("""
 .prebooked-num { font-weight: 700; font-size: 10px; color: #e07b00; }
 .unavail-text  { font-size: 7px; color: #aaa; }
 .today-col     { outline: 2px solid #4A90D9; outline-offset: -2px; }
-.grid-table td.clickable { padding: 0; cursor: pointer; }
-.grid-table td.clickable a {
+.grid-table td.clickable, .grid-table td.selected-cell { padding: 0; cursor: pointer; }
+.grid-table td.clickable a, .grid-table td.selected-cell a {
     display: flex; align-items: center; justify-content: center;
-    width: 100%; height: 22px; text-decoration: none;
-    color: transparent; font-size: 13px; font-weight: 300;
+    width: 100%; height: 22px; text-decoration: none; font-size: 11px; font-weight: 600;
 }
-.grid-table td.clickable a:hover {
-    color: #4A90D9; background: rgba(74,144,217,0.13);
-}
+.grid-table td.clickable a { color: transparent; }
+.grid-table td.clickable a:hover { color: #4A90D9; background: rgba(74,144,217,0.13); }
+.grid-table td.selected-cell { background: rgba(74,144,217,0.22); }
+.grid-table td.selected-cell a { color: #2266cc; }
+.grid-table td.selected-cell a:hover { background: rgba(74,144,217,0.32); }
 .legend { display:flex; gap:12px; flex-wrap:wrap; align-items:center;
           font-size:11px; color:#555; margin-bottom:6px; }
 .ldot { width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:3px; }
@@ -213,6 +214,9 @@ for u in truck_unavail:
 
 today_str = date.today().isoformat()
 
+# Selected cells from query params — format: "h1:2026-04-15,h3:2026-04-16"
+_sel_cells: set = set(st.query_params.get("sel", "").split(",")) - {""}
+
 
 # ── Grid ─────────────────────────────────────────────────────────────────────
 def _handler_rows(h_list, rows):
@@ -259,10 +263,20 @@ def _handler_rows(h_list, rows):
                 reason = (unavail.get("reason") or "")[:4]
                 rows.append(f"<td style='background:#111' class='{tc}'><span class='unavail-text'>{reason}</span></td>")
             else:
-                rows.append(
-                    f"<td class='clickable{(' ' + tc) if tc else ''}'>"
-                    f"<a href='?qb_handler={h['id']}&qb_date={ds}'>+</a></td>"
-                )
+                cell_key = f"{h['id']}:{ds}"
+                tc_cls   = tc  # already has leading space or is ""
+                if cell_key in _sel_cells:
+                    # Already selected → click deselects
+                    new_sel = ",".join(sorted(_sel_cells - {cell_key}))
+                    href    = f"?sel={new_sel}" if new_sel else "?"
+                    rows.append(f"<td class='selected-cell{tc_cls}'>"
+                                f"<a href='{href}' title='Click to deselect'>✓</a></td>")
+                else:
+                    # Not selected → click selects
+                    new_sel  = ",".join(sorted(_sel_cells | {cell_key}))
+                    h_name   = h["name"]
+                    rows.append(f"<td class='clickable{tc_cls}'>"
+                                f"<a href='?sel={new_sel}' title='Click to select {h_name}'>+</a></td>")
         rows.append("</tr>")
 
 
@@ -360,88 +374,173 @@ def build_grid() -> str:
     return "".join(rows)
 
 
-# ── Quick-booking panel (triggered by clicking a cell) ────────────────────────
-_qb_hid  = st.query_params.get("qb_handler")
-_qb_date = st.query_params.get("qb_date")
-
-if _qb_hid and _qb_date and _qb_hid in handler_map:
-    _qb_h = handler_map[_qb_hid]
-    try:
-        _qb_date_obj = date.fromisoformat(_qb_date)
-        _qb_date_fmt = _qb_date_obj.strftime("%A %d %B %Y")
-    except Exception:
-        _qb_date_fmt = _qb_date
-
-    # Check if still free (someone may have just booked this slot)
-    _qa_unavail, _qa_booked = db.get_unavailable_handler_ids(_qb_date)
-    _still_free = _qb_hid not in (_qa_unavail | _qa_booked)
-
-    qb_color = hex_to_opaque_tint(_qb_h["color"], 0.25)
-    st.markdown(
-        f"<div style='background:{qb_color};border:2px solid {_qb_h['color']};"
-        f"border-radius:8px;padding:10px 16px;margin-bottom:8px'>"
-        f"<b style='font-size:15px'>Quick Booking</b> &nbsp;·&nbsp; "
-        f"<b>{_qb_h['name']}</b> &nbsp;·&nbsp; {_qb_date_fmt}"
-        + (f"&nbsp; <span style='color:#c00;font-size:12px'>⚠ No longer available</span>"
-           if not _still_free else "")
-        + "</div>",
-        unsafe_allow_html=True,
-    )
-
-    if not _still_free:
-        if st.button("← Back to calendar", key="qb_back_unavail"):
-            st.query_params.clear()
-            st.rerun()
-    else:
-        with st.form("quick_book_form"):
-            qf1, qf2, qf3 = st.columns(3)
-            with qf1:
-                _qb_client_names = [c["name"] for c in clients]
-                _qb_client_colors = {c["name"]: c["color"] for c in clients}
-                def _qb_fmt(n): return f"{hex_to_circle_emoji(_qb_client_colors.get(n,'#888'))} {n}"
-                qb_client  = st.selectbox("Client *", _qb_client_names, format_func=_qb_fmt)
-                qb_projnum = st.text_input("Project Number *", placeholder="HAR-2026-XXX")
-            with qf2:
-                qb_initials = st.text_input("Your Initials *", max_chars=5, placeholder="AG")
-                qb_location = st.text_input("Location", placeholder="Louvre Museum, Paris")
-            with qf3:
-                qb_desc = st.text_area("Description", height=88,
-                                       placeholder="Brief description…")
-
-            btn_pre, btn_confirm, btn_cancel = st.columns(3)
-            with btn_pre:
-                do_prebook  = st.form_submit_button("Pre-book", use_container_width=True)
-            with btn_confirm:
-                do_confirm  = st.form_submit_button("✅ Confirm Booking", type="primary",
-                                                    use_container_width=True)
-            with btn_cancel:
-                do_cancel   = st.form_submit_button("Cancel", use_container_width=True)
-
-        if do_cancel:
-            st.query_params.clear()
-            st.rerun()
-
-        if do_prebook or do_confirm:
-            if not qb_client or not qb_projnum or not qb_initials:
-                st.error("Client, project number and initials are required.")
-            else:
-                _status = "BOOKED" if do_confirm else "PRE_BOOKED"
-                _hname  = _qb_h["name"].split()[0]
-                _title  = f"{qb_initials} - {qb_client} - {_hname} - {qb_projnum}"
-                db.create_project(
-                    {"projectNumber": qb_projnum, "title": _title,
-                     "clientId": client_map[qb_client]["id"],
-                     "description": qb_desc, "location": qb_location,
-                     "date": _qb_date, "status": _status, "createdBy": qb_initials},
-                    [_qb_hid], [],
-                )
-                st.success(f"{'Confirmed' if do_confirm else 'Pre-booked'}: **{_title}**")
-                st.query_params.clear()
-                st.rerun()
-
-    st.divider()
-
 st.markdown(build_grid(), unsafe_allow_html=True)
+
+# ── Multi-cell selection summary bar ─────────────────────────────────────────
+if _sel_cells:
+    # Parse & validate selected cells
+    _parsed_sel: list = []
+    for _ck in sorted(_sel_cells):
+        parts = _ck.split(":")
+        if len(parts) == 2 and parts[0] in handler_map:
+            _parsed_sel.append((handler_map[parts[0]], parts[1]))
+
+    if _parsed_sel:
+        # Compact summary shown below the grid
+        _names_str = ", ".join(
+            f"**{h['name']}** ({ds})" for h, ds in _parsed_sel
+        )
+        st.markdown(
+            f"<div style='background:#eef4ff;border:2px solid #4A90D9;"
+            f"border-radius:8px;padding:10px 16px;margin:6px 0'>"
+            f"<b style='font-size:13px;color:#2255aa'>"
+            f"🗂 {len(_parsed_sel)} cell{'s' if len(_parsed_sel)>1 else ''} selected</b>"
+            f"<br><span style='font-size:11px;color:#444'>{_names_str}</span></div>",
+            unsafe_allow_html=True,
+        )
+
+        _sb1, _sb2, _sb3 = st.columns([2, 2, 6])
+        with _sb1:
+            _do_next = st.button("Next →", type="primary", use_container_width=True,
+                                 key="qb_next")
+        with _sb2:
+            _do_clear = st.button("✕ Clear selection", use_container_width=True,
+                                  key="qb_clear")
+        if _do_clear:
+            st.query_params.clear()
+            st.session_state.pop("qb_show_form", None)
+            st.rerun()
+        if _do_next:
+            st.session_state["qb_show_form"] = True
+            st.rerun()
+
+        # ── Booking form (expands when Next is clicked) ───────────────────
+        if st.session_state.get("qb_show_form"):
+            st.markdown("---")
+            st.markdown("#### Confirm Booking")
+
+            # Check current availability for each selected cell
+            _blocked_cells = []
+            for _h, _ds in _parsed_sel:
+                _u, _b = db.get_unavailable_handler_ids(_ds)
+                if _h["id"] in (_u | _b):
+                    _blocked_cells.append((_h, _ds))
+            _free_cells = [(_h, _ds) for _h, _ds in _parsed_sel
+                           if (_h, _ds) not in _blocked_cells]
+
+            if _blocked_cells:
+                st.warning(
+                    "The following slots are no longer available and will be skipped: "
+                    + ", ".join(f"{h['name']} ({ds})" for h, ds in _blocked_cells)
+                )
+            if not _free_cells:
+                st.error("All selected slots are now unavailable.")
+                if st.button("← Back", key="qb_back_all_blocked"):
+                    st.session_state.pop("qb_show_form", None)
+                    st.rerun()
+            else:
+                # Group by handler → show each handler's dates as a compact range summary
+                from collections import defaultdict as _dd
+                _by_handler: dict = _dd(list)
+                for _fh, _fds in _free_cells:
+                    _by_handler[_fh["id"]].append(_fds)
+                _summary_parts = []
+                for _hid, _dlist in sorted(_by_handler.items(),
+                                           key=lambda x: handler_map[x[0]]["name"]):
+                    _hname  = handler_map[_hid]["name"]
+                    _sorted = sorted(_dlist)
+                    # Collapse consecutive dates into ranges
+                    _ranges, _rstart, _rprev = [], _sorted[0], _sorted[0]
+                    for _dd_s in _sorted[1:]:
+                        _prev_d = date.fromisoformat(_rprev)
+                        _cur_d  = date.fromisoformat(_dd_s)
+                        if (_cur_d - _prev_d).days == 1:
+                            _rprev = _dd_s
+                        else:
+                            _ranges.append((_rstart, _rprev))
+                            _rstart = _rprev = _dd_s
+                    _ranges.append((_rstart, _rprev))
+                    _range_strs = [
+                        _r[0][5:] if _r[0] == _r[1] else f"{_r[0][5:]} → {_r[1][5:]}"
+                        for _r in _ranges
+                    ]
+                    _summary_parts.append(f"**{_hname}**: {', '.join(_range_strs)}")
+
+                st.markdown(
+                    "<div style='background:#f6f8ff;border:1px solid #c0d0f0;"
+                    "border-radius:6px;padding:8px 12px;margin-bottom:8px'>"
+                    "<b style='color:#2255aa'>Slots to book:</b><br>"
+                    + "<br>".join(
+                        f"<span style='font-size:12px'>· {p}</span>"
+                        for p in _summary_parts
+                    )
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
+                # Earliest date used as project date
+                _proj_date = min(ds for _, ds in _free_cells)
+
+                with st.form("multi_book_form"):
+                    mf1, mf2, mf3 = st.columns(3)
+                    with mf1:
+                        _cc = {c["name"]: c["color"] for c in clients}
+                        def _mfmt(n): return f"{hex_to_circle_emoji(_cc.get(n,'#888'))} {n}"
+                        mf_client  = st.selectbox("Client *",
+                                                  [c["name"] for c in clients],
+                                                  format_func=_mfmt)
+                        mf_projnum = st.text_input("Project Number *",
+                                                   placeholder="HAR-2026-XXX")
+                    with mf2:
+                        mf_initials = st.text_input("Your Initials *", max_chars=5,
+                                                    placeholder="AG")
+                        mf_location = st.text_input("Location",
+                                                    placeholder="Louvre Museum, Paris")
+                    with mf3:
+                        mf_desc = st.text_area("Description", height=88,
+                                               placeholder="Brief description…")
+
+                    mb1, mb2, mb3 = st.columns(3)
+                    with mb1:
+                        do_prebook = st.form_submit_button("Pre-book",
+                                                           use_container_width=True)
+                    with mb2:
+                        do_confirm = st.form_submit_button("✅ Confirm Booking",
+                                                           type="primary",
+                                                           use_container_width=True)
+                    with mb3:
+                        do_cancel  = st.form_submit_button("Cancel",
+                                                           use_container_width=True)
+
+                if do_cancel:
+                    st.session_state.pop("qb_show_form", None)
+                    st.rerun()
+
+                if do_prebook or do_confirm:
+                    if not mf_client or not mf_projnum or not mf_initials:
+                        st.error("Client, project number and initials are required.")
+                    else:
+                        _status = "BOOKED" if do_confirm else "PRE_BOOKED"
+                        _first_names = [h["name"].split()[0] for h, _ in _free_cells]
+                        _team_str = ", ".join(dict.fromkeys(_first_names))  # deduplicated
+                        _title = f"{mf_initials} - {mf_client} - {_team_str} - {mf_projnum}"
+                        _pairs = [(_h["id"], _ds) for _h, _ds in _free_cells]
+                        db.create_project(
+                            {"projectNumber": mf_projnum, "title": _title,
+                             "clientId": client_map[mf_client]["id"],
+                             "description": mf_desc, "location": mf_location,
+                             "date": _proj_date, "status": _status,
+                             "createdBy": mf_initials},
+                            [], [],
+                            handler_date_pairs=_pairs,
+                        )
+                        st.success(
+                            f"{'Confirmed' if do_confirm else 'Pre-booked'}: "
+                            f"**{_title}** ({len(_free_cells)} slot(s))"
+                        )
+                        st.query_params.clear()
+                        st.session_state.pop("qb_show_form", None)
+                        st.rerun()
+
 st.divider()
 
 # ── Action tabs ───────────────────────────────────────────────────────────────
@@ -449,14 +548,13 @@ tab1, tab2, tab3 = st.tabs(["📋 New Booking", "🚫 Mark Unavailable", "📁 V
 
 # ── Tab 1: New Booking ────────────────────────────────────────────────────────
 with tab1:
-    col1, col2 = st.columns(2)
-    with col1:
-        # Build format_func that prepends a colour-matched circle emoji to each client name
+    # ── Project metadata ──────────────────────────────────────────────────────
+    meta_c1, meta_c2 = st.columns(2)
+    with meta_c1:
         _client_color_map = {c["name"]: c["color"] for c in clients}
         def _fmt_client(name):
             return f"{hex_to_circle_emoji(_client_color_map.get(name, '#888'))} {name}"
 
-        # Label shows the exact hex-colour dot of the current selection
         _cur_client = st.session_state.get("nb_client") or (clients[0]["name"] if clients else None)
         _dot = ""
         if _cur_client and _cur_client in client_map:
@@ -471,22 +569,54 @@ with tab1:
             key="nb_client", label_visibility="collapsed",
         )
         project_number = st.text_input("Project Number *", placeholder="HAR-2026-XXX", key="nb_projnum")
-        booking_date   = st.date_input("Date *", value=date.today(), key="nb_date")
-        initials       = st.text_input("Your Initials *", max_chars=5, placeholder="AG", key="nb_initials")
-    with col2:
+        initials = st.text_input("Your Initials *", max_chars=5, placeholder="AG", key="nb_initials")
+    with meta_c2:
         location    = st.text_input("Location", placeholder="Louvre Museum, Paris", key="nb_location")
         description = st.text_area("Description", placeholder="Brief description of the work…",
                                    height=108, key="nb_desc")
 
-    # ── Handler availability for selected date ────────────────────────────────
-    date_str = booking_date.isoformat()
-    h_unavail_ids, h_booked_ids = db.get_unavailable_handler_ids(date_str)
-    h_blocked_ids = h_unavail_ids | h_booked_ids
-    t_unavail_ids, t_booked_ids = db.get_unavailable_truck_ids(date_str)
-    t_blocked_ids = t_unavail_ids | t_booked_ids
+    st.markdown("---")
 
-    # ── Handler multiselect with rich labels ──────────────────────────────────
-    def make_label(h):
+    # ── Booking schedule (multi-date-range lines) ─────────────────────────────
+    st.markdown("**Booking Schedule**")
+    st.caption("Add one or more date ranges, each with their own team. All ranges form a single project.")
+
+    if "nb_booking_lines" not in st.session_state:
+        st.session_state.nb_booking_lines = []
+
+    _lines = st.session_state.nb_booking_lines
+
+    # Show existing lines
+    if _lines:
+        for _li, _line in enumerate(_lines):
+            _h_names = [handler_map[_hid]["name"] for _hid in _line["handler_ids"]
+                        if _hid in handler_map]
+            _dfrom, _dto = _line["date_from"], _line["date_to"]
+            _d_label = _dfrom if _dfrom == _dto else f"{_dfrom} → {_dto}"
+            _lc1, _lc2 = st.columns([11, 1])
+            with _lc1:
+                st.markdown(
+                    f"<div style='background:#f0f4ff;border:1px solid #b8ccf0;"
+                    f"border-radius:6px;padding:6px 12px;margin-bottom:4px'>"
+                    f"<b style='color:#2255aa'>{_d_label}</b> &nbsp;·&nbsp; "
+                    f"{len(_line['handler_ids'])} handler(s): "
+                    f"<span style='color:#444'>{', '.join(_h_names)}</span></div>",
+                    unsafe_allow_html=True,
+                )
+            with _lc2:
+                if st.button("✕", key=f"nb_del_{_li}", help="Remove this line"):
+                    st.session_state.nb_booking_lines.pop(_li)
+                    st.rerun()
+    else:
+        st.caption("_No date ranges added yet._")
+
+    # ── Add-line expander ─────────────────────────────────────────────────────
+    internal_h = [h for h in handlers if h["type"] == "Internal"]
+    iss_h      = [h for h in handlers if h.get("company") == "ISS"]
+    blitz_h    = [h for h in handlers if h.get("company") == db.BLITZ_COMPANY]
+    all_for_select = internal_h + iss_h + blitz_h
+
+    def _make_label(h):
         icons = ""
         if h.get("hasBadgeLouvre"):   icons += "🏛L"
         if h.get("canDriveTruck"):    icons += "🚛"
@@ -494,127 +624,170 @@ with tab1:
         company = h.get("company") or ""
         company_tag = f" · {company}" if company else ""
         icon_tag = (" · " + icons) if icons else ""
-        blocked = h["id"] in h_blocked_ids
-        status = " ⛔" if blocked else ""
-        return f"{h['name']}  [{h['level']}{company_tag}{icon_tag}]{status}"
+        return f"{h['name']}  [{h['level']}{company_tag}{icon_tag}]"
 
-    internal_h = [h for h in handlers if h["type"] == "Internal"]
-    iss_h      = [h for h in handlers if h.get("company") == "ISS"]
-    blitz_h    = [h for h in handlers if h.get("company") == db.BLITZ_COMPANY]
+    _all_h_labels   = [_make_label(h) for h in all_for_select]
+    _all_h_label_map = {_make_label(h): h["id"] for h in all_for_select}
 
-    all_for_select = internal_h + iss_h + blitz_h
-    label_map = {make_label(h): h for h in all_for_select}
-    available_labels = [make_label(h) for h in all_for_select if h["id"] not in h_blocked_ids]
-    blocked_labels   = [make_label(h) for h in all_for_select if h["id"] in h_blocked_ids]
+    with st.expander("➕ Add date range", expanded=(len(_lines) == 0)):
+        _ac1, _ac2, _ac3 = st.columns([2, 2, 5])
+        with _ac1:
+            _add_from = st.date_input("From *", value=date.today(), key="nb_add_from")
+        with _ac2:
+            _add_to   = st.date_input("To *",   value=date.today(), key="nb_add_to")
+        with _ac3:
+            st.markdown("**Handlers \\***")
+            _add_sel = st.multiselect(
+                "Handlers", options=_all_h_labels,
+                key="nb_add_handlers", label_visibility="collapsed",
+            )
+        if st.button("Add to schedule →", key="nb_add_line", type="primary"):
+            if _add_to < _add_from:
+                st.error("'To' date must be on or after 'From' date.")
+            elif not _add_sel:
+                st.error("Select at least one handler.")
+            else:
+                st.session_state.nb_booking_lines.append({
+                    "date_from":   _add_from.isoformat(),
+                    "date_to":     _add_to.isoformat(),
+                    "handler_ids": [_all_h_label_map[_l] for _l in _add_sel
+                                    if _l in _all_h_label_map],
+                })
+                # Reset multiselect for next addition
+                st.session_state.pop("nb_add_handlers", None)
+                st.rerun()
 
-    st.markdown("**Select Art Handlers \\***")
-    selected_labels = st.multiselect(
-        "Art Handlers",
-        options=available_labels + blocked_labels,
-        default=[],
-        key=f"nb_handlers_{date_str}",
-        label_visibility="collapsed",
-        help="Handlers marked ⛔ are unavailable or already booked on this date.",
-    )
-    # Prevent selecting blocked handlers
-    selected_labels = [l for l in selected_labels if l not in blocked_labels]
-    selected_handlers = [label_map[l] for l in selected_labels if l in label_map]
-    selected_handler_ids = [h["id"] for h in selected_handlers]
-
-    # ── Truck selection ───────────────────────────────────────────────────────
+    # ── Truck selection (whole-project) ───────────────────────────────────────
     st.markdown("**Assign Vehicles** (optional)")
+    _truck_ref_date = _lines[0]["date_from"] if _lines else date.today().isoformat()
+    t_unavail_ids, t_booked_ids = db.get_unavailable_truck_ids(_truck_ref_date)
+    t_blocked_ids = t_unavail_ids | t_booked_ids
+
     truck_cols = st.columns(min(len(trucks), 4)) if trucks else st.columns(1)
     selected_truck_ids = []
-    for i, t in enumerate(trucks):
-        with truck_cols[i % 4]:
-            t_blocked = t["id"] in t_blocked_ids
-            t_label = "⛔ Unavailable" if t["id"] in t_unavail_ids else ("⛔ Booked" if t["id"] in t_booked_ids else "")
-            spec_str   = t.get("spec") or ""
-            _t_spec_h  = f'<br><span style="font-size:10px;color:#777">{spec_str}</span>' if spec_str else ''
-            _t_label_h = f'<br><span style="font-size:10px;color:#c00">{t_label}</span>' if t_label else ''
-            _t_bg      = '#f5f5f5' if t_blocked else 'white'
-            _t_nc      = '#aaa' if t_blocked else '#111'
+    for _ti, _t in enumerate(trucks):
+        with truck_cols[_ti % 4]:
+            _t_blocked = _t["id"] in t_blocked_ids
+            _t_label   = ("⛔ Unavailable" if _t["id"] in t_unavail_ids
+                          else ("⛔ Booked" if _t["id"] in t_booked_ids else ""))
+            _t_spec_h  = (f'<br><span style="font-size:10px;color:#777">'
+                          f'{_t.get("spec") or ""}</span>') if _t.get("spec") else ""
+            _t_label_h = (f'<br><span style="font-size:10px;color:#c00">'
+                          f'{_t_label}</span>') if _t_label else ""
+            _t_bg = '#f5f5f5' if _t_blocked else 'white'
+            _t_nc = '#aaa'    if _t_blocked else '#111'
             st.markdown(
                 f"<div style='background:{_t_bg};border:1px solid #e0e0e0;"
                 f"border-radius:6px;padding:6px 8px;margin-bottom:2px'>"
                 f"<span style='font-size:12px;font-weight:600;color:{_t_nc}'>"
-                f"🚚 {t['name']}</span>{_t_spec_h}{_t_label_h}</div>",
+                f"🚚 {_t['name']}</span>{_t_spec_h}{_t_label_h}</div>",
                 unsafe_allow_html=True,
             )
-            tkey = f"tsel_{date_str}_{t['id']}"
-            if st.checkbox("Select", key=tkey, disabled=t_blocked, label_visibility="collapsed"):
-                selected_truck_ids.append(t["id"])
+            if st.checkbox("Select", key=f"tsel_{_truck_ref_date}_{_t['id']}",
+                           disabled=_t_blocked, label_visibility="collapsed"):
+                selected_truck_ids.append(_t["id"])
 
-    # ── Split by company ──────────────────────────────────────────────────────
-    blitz_sel = [h for h in selected_handlers if h.get("company") == db.BLITZ_COMPANY]
-    own_sel   = [h for h in selected_handlers if h.get("company") != db.BLITZ_COMPANY]
-    # (own_sel includes both Internal and ISS handlers — ISS is booked directly)
-    has_blitz = len(blitz_sel) > 0
+    # ── Blitz info ────────────────────────────────────────────────────────────
+    _blitz_hids_in_lines: set = set()
+    for _ln in _lines:
+        for _hid in _ln["handler_ids"]:
+            if _hid in handler_map and handler_map[_hid].get("company") == db.BLITZ_COMPANY:
+                _blitz_hids_in_lines.add(_hid)
+    _has_blitz = len(_blitz_hids_in_lines) > 0
+    if _has_blitz:
+        _blitz_names_str = ", ".join(handler_map[_hid]["name"] for _hid in _blitz_hids_in_lines)
+        st.info(f"⚡ **{len(_blitz_hids_in_lines)} Blitz handler(s) in schedule:** {_blitz_names_str}")
 
-    if has_blitz:
-        st.info(f"⚡ **{len(blitz_sel)} Blitz handler(s) selected:** " + ", ".join(h["name"] for h in blitz_sel))
-
-    def build_booking_title():
-        if not client_name or not project_number or not initials:
+    # ── Build title preview ───────────────────────────────────────────────────
+    def _build_nb_title():
+        if not client_name or not project_number or not initials or not _lines:
             return ""
-        names    = [h["name"].split()[0] for h in own_sel]
-        team_str = ", ".join(names)
-        if has_blitz:
-            team_str += f" + {len(blitz_sel)} Blitz"
-        return f"{initials} - {client_name} - {team_str} - {project_number}"
+        _all_hids = list(dict.fromkeys(
+            _hid for _ln in _lines for _hid in _ln["handler_ids"]
+        ))
+        _own_names  = [handler_map[_hid]["name"].split()[0] for _hid in _all_hids
+                       if _hid in handler_map
+                       and handler_map[_hid].get("company") != db.BLITZ_COMPANY]
+        _team_str   = ", ".join(_own_names[:4])
+        if len(_own_names) > 4:
+            _team_str += f" +{len(_own_names) - 4}"
+        if _has_blitz:
+            _team_str += f" + {len(_blitz_hids_in_lines)} Blitz"
+        return f"{initials} - {client_name} - {_team_str} - {project_number}"
 
+    _title_prev = _build_nb_title()
+    if _title_prev:
+        st.caption(f"Invite title: **{_title_prev}**")
+
+    # ── Submit ────────────────────────────────────────────────────────────────
     def do_create_booking(status: str):
-        if not client_name or not project_number or not selected_handler_ids or not initials:
-            st.error("Please fill in client, project number, initials and select at least one handler.")
+        if not client_name or not project_number or not initials:
+            st.error("Please fill in Client, Project Number and Initials.")
             return
-        title = build_booking_title()
+        if not _lines:
+            st.error("Add at least one date range to the Booking Schedule.")
+            return
+        # Expand each line into individual (handler_id, date) pairs
+        _pairs: list = []
+        for _ln in _lines:
+            _d_cur = date.fromisoformat(_ln["date_from"])
+            _d_end = date.fromisoformat(_ln["date_to"])
+            while _d_cur <= _d_end:
+                for _hid in _ln["handler_ids"]:
+                    _pairs.append((_hid, _d_cur.isoformat()))
+                _d_cur += timedelta(days=1)
+        _proj_date = min(_ds for _, _ds in _pairs)
+        _title = _build_nb_title() or f"{initials} - {client_name} - {project_number}"
         db.create_project(
-            {
-                "projectNumber": project_number,
-                "title":         title,
-                "clientId":      client_map[client_name]["id"],
-                "description":   description,
-                "location":      location,
-                "date":          date_str,
-                "status":        status,
-                "createdBy":     initials,
-            },
-            selected_handler_ids,
-            selected_truck_ids,
+            {"projectNumber": project_number, "title": _title,
+             "clientId":      client_map[client_name]["id"],
+             "description":   description, "location": location,
+             "date":          _proj_date,  "status":   status,
+             "createdBy":     initials},
+            [], selected_truck_ids,
+            handler_date_pairs=_pairs,
         )
-        st.success(f"✅ {'Confirmed' if status == 'BOOKED' else 'Pre-booked'}: {title}")
+        st.success(f"{'Confirmed' if status == 'BOOKED' else 'Pre-booked'}: **{_title}**"
+                   f" ({len(_pairs)} handler-day slot(s))")
+        st.session_state.nb_booking_lines = []
         st.rerun()
 
-    title_preview = build_booking_title()
-    if title_preview:
-        st.caption(f"Invite title: **{title_preview}**")
-
     st.markdown("")
-
-    if has_blitz:
-        bcol1, bcol2 = st.columns(2)
-        with bcol1:
+    if _has_blitz:
+        _bcol1, _bcol2, _bcol3 = st.columns(3)
+        with _bcol1:
             if st.button("📧 Check Blitz Availability", use_container_width=True, type="secondary"):
                 st.session_state["show_blitz_email"] = True
-        with bcol2:
-            if st.button("✅ Book the Team", use_container_width=True, type="primary"):
+        with _bcol2:
+            if st.button("Pre-book Schedule", use_container_width=True):
+                do_create_booking("PRE_BOOKED")
+        with _bcol3:
+            if st.button("✅ Confirm Schedule", use_container_width=True, type="primary"):
                 do_create_booking("BOOKED")
 
         if st.session_state.get("show_blitz_email"):
-            blitz_names = [h["name"] for h in blitz_sel]
-            date_fmt    = booking_date.strftime("%A %d %B %Y")
-            subject     = f"Availability Check – {client_name} – {date_fmt} – {project_number}"
-            body        = "\n".join([
+            _blitz_names = [handler_map[_hid]["name"] for _hid in _blitz_hids_in_lines]
+            _date_lines  = []
+            for _ln in _lines:
+                _d1 = date.fromisoformat(_ln["date_from"]).strftime("%d %B %Y")
+                _d2 = date.fromisoformat(_ln["date_to"]).strftime("%d %B %Y")
+                _ln_blitz = [handler_map[_hid]["name"] for _hid in _ln["handler_ids"]
+                             if _hid in _blitz_hids_in_lines]
+                if _ln_blitz:
+                    _range_str = _d1 if _d1 == _d2 else f"{_d1} – {_d2}"
+                    _date_lines.append(f"  {_range_str}: {', '.join(_ln_blitz)}")
+            subject = f"Availability Check – {client_name} – {project_number}"
+            body = "\n".join([
                 "Dear Prabah,", "",
                 "I hope you're well. Could you please confirm the availability of the "
-                "following Blitz art handlers for the project below?", "",
-                "Handlers needed:",
-                *[f"  • {n}" for n in blitz_names], "",
-                f"Project:     {project_number}",
-                f"Client:      {client_name}",
-                f"Date:        {date_fmt}",
-                f"Location:    {location or 'TBC'}",
-                f"Description: {description or '—'}", "",
+                "following Blitz art handlers for the dates listed below?", "",
+                "Project details:",
+                f"  Project:     {project_number}",
+                f"  Client:      {client_name}",
+                f"  Location:    {location or 'TBC'}",
+                f"  Description: {description or '—'}", "",
+                "Dates and handlers needed:",
+                *_date_lines, "",
                 "Please confirm at your earliest convenience.", "",
                 "Best regards,", initials,
             ])
@@ -634,12 +807,12 @@ with tab1:
                     st.session_state["show_blitz_email"] = False
                     st.rerun()
     else:
-        bcol1, bcol2 = st.columns(2)
-        with bcol1:
-            if st.button("Pre-book", use_container_width=True):
+        _bcol1, _bcol2 = st.columns(2)
+        with _bcol1:
+            if st.button("Pre-book Schedule", use_container_width=True):
                 do_create_booking("PRE_BOOKED")
-        with bcol2:
-            if st.button("✅ Confirm Booking", use_container_width=True, type="primary"):
+        with _bcol2:
+            if st.button("✅ Confirm Schedule", use_container_width=True, type="primary"):
                 do_create_booking("BOOKED")
 
 # ── Tab 2: Mark Unavailable ───────────────────────────────────────────────────
