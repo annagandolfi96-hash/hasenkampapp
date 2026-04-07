@@ -267,16 +267,16 @@ def _handler_rows(h_list, rows):
                 tc_cls   = tc  # already has leading space or is ""
                 if cell_key in _sel_cells:
                     # Already selected → click deselects
-                    new_sel = ",".join(sorted(_sel_cells - {cell_key}))
-                    href    = f"?sel={new_sel}" if new_sel else "?"
+                    new_sel  = ",".join(sorted(_sel_cells - {cell_key}))
+                    js_nav   = f"window.top.location.search='?sel={new_sel}'" if new_sel else "window.top.location.search=''"
                     rows.append(f"<td class='selected-cell{tc_cls}'>"
-                                f"<a href='{href}' target='_parent' title='Click to deselect'>✓</a></td>")
+                                f"<a href='javascript:void(0)' onclick=\"{js_nav}\" title='Click to deselect'>✓</a></td>")
                 else:
                     # Not selected → click selects
                     new_sel  = ",".join(sorted(_sel_cells | {cell_key}))
                     h_name   = h["name"]
                     rows.append(f"<td class='clickable{tc_cls}'>"
-                                f"<a href='?sel={new_sel}' target='_parent' title='Click to select {h_name}'>+</a></td>")
+                                f"<a href='javascript:void(0)' onclick=\"window.top.location.search='?sel={new_sel}'\" title='Click to select {h_name}'>+</a></td>")
         rows.append("</tr>")
 
 
