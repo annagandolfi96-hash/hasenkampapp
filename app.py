@@ -270,13 +270,13 @@ def _handler_rows(h_list, rows):
                     new_sel = ",".join(sorted(_sel_cells - {cell_key}))
                     href    = f"?sel={new_sel}" if new_sel else "?"
                     rows.append(f"<td class='selected-cell{tc_cls}'>"
-                                f"<a href='{href}' title='Click to deselect'>✓</a></td>")
+                                f"<a href='{href}' target='_parent' title='Click to deselect'>✓</a></td>")
                 else:
                     # Not selected → click selects
                     new_sel  = ",".join(sorted(_sel_cells | {cell_key}))
                     h_name   = h["name"]
                     rows.append(f"<td class='clickable{tc_cls}'>"
-                                f"<a href='?sel={new_sel}' title='Click to select {h_name}'>+</a></td>")
+                                f"<a href='?sel={new_sel}' target='_parent' title='Click to select {h_name}'>+</a></td>")
         rows.append("</tr>")
 
 
