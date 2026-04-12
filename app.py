@@ -2,6 +2,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from datetime import date, timedelta
 from itertools import groupby
+import os
 import db
 
 st.set_page_config(
@@ -11,6 +12,48 @@ st.set_page_config(
 )
 
 db.init_db()
+
+# ── Declare the grid selection component ─────────────────────────────────────
+# st.components.v1.html() uses a srcdoc iframe (null/opaque origin) so
+# window.top/parent.location throws SecurityError. The declare_component path
+# serves files from the same origin and uses Streamlit's postMessage protocol
+# so setComponentValue actually reaches Python.
+_COMP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_artgrid_comp")
+os.makedirs(_COMP_DIR, exist_ok=True)
+with open(os.path.join(_COMP_DIR, "index.html"), "w", encoding="utf-8") as _cf:
+    _cf.write("""<!DOCTYPE html>
+<html>
+<head>
+<style>html,body{margin:0;padding:0;background:transparent;}</style>
+<style id="dcss"></style>
+</head>
+<body>
+<div id="g"></div>
+<script>
+function send(t,p){
+    window.parent.postMessage(Object.assign({isStreamlitMessage:true,type:t},p),'*');
+}
+window.addEventListener('message',function(e){
+    if(!e.data||!e.data.isStreamlitMessage)return;
+    if(e.data.type==='streamlit:render'){
+        var a=e.data.args;
+        if(a.css!=null)document.getElementById('dcss').textContent=a.css;
+        if(a.html!=null)document.getElementById('g').innerHTML=a.html;
+        send('streamlit:setFrameHeight',{height:a.h||500});
+    }
+});
+document.addEventListener('click',function(e){
+    var td=e.target.closest('td[data-sel]');
+    if(!td)return;
+    e.preventDefault();
+    send('streamlit:setComponentValue',{value:td.getAttribute('data-sel')||'',dataType:'json'});
+});
+send('streamlit:componentReady',{apiVersion:1});
+</script>
+</body>
+</html>""")
+
+_art_grid = components.declare_component("art_grid", path=_COMP_DIR)
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -155,9 +198,69 @@ for u in truck_unavail:
 
 today_str = date.today().isoformat()
 
-# Selected cells from query params — format: "h1:2026-04-15,h3:2026-04-16"
-_sel_cells: set = set(st.query_params.get("sel", "").split(",")) - {""}
+# ── Selection state (session_state, not query_params — components use postMessage) ──
+if "_sel_str" not in st.session_state:
+    st.session_state["_sel_str"] = ""
+_sel_str:   str = st.session_state["_sel_str"]
+_sel_cells: set = set(_sel_str.split(",")) - {""}
 
+# ── Grid CSS (passed as prop to the grid component) ───────────────────────────
+GRID_CSS = """
+body { margin:0; padding:0; }
+.grid-wrap { overflow:auto; height:100%; border:1px solid #ccc; border-radius:4px; }
+.grid-table { border-collapse:collapse; font-size:9px; }
+.grid-table th {
+    position:sticky; top:0; z-index:2;
+    background:#1a1a2e; color:white;
+    padding:2px 2px; border:1px solid #333;
+    white-space:nowrap; text-align:center;
+    font-weight:600; width:38px; min-width:38px; max-width:38px;
+}
+.grid-table thead tr:nth-child(2) th { top:20px; }
+.grid-table th.name-col {
+    position:sticky; left:0; top:0; z-index:4;
+    text-align:left; width:130px; min-width:130px; max-width:130px;
+}
+.grid-table thead tr:nth-child(2) th.name-col { top:20px; }
+.grid-table th.month-col {
+    font-size:10px; font-weight:700; letter-spacing:.04em;
+    background:#12122a; border-bottom:1px solid #444;
+}
+.grid-table td {
+    border:1px solid #e0e0e0; padding:1px 2px; text-align:center;
+    height:22px; vertical-align:middle;
+    width:38px; min-width:38px; max-width:38px;
+}
+.grid-table td.name-cell {
+    position:sticky; left:0; z-index:1;
+    text-align:left; white-space:nowrap;
+    font-weight:500; overflow:hidden;
+    width:130px; min-width:130px; max-width:130px; padding:1px 4px;
+}
+.grid-table td.section-header {
+    position:sticky; left:0; z-index:1;
+    background:#e8e8e8; font-weight:700; font-size:9px;
+    color:#555; text-transform:uppercase; letter-spacing:0.06em;
+    text-align:left; padding:2px 4px;
+    width:auto; max-width:unset; min-width:unset;
+}
+.grid-table tr td.section-header ~ td { background:#f0f0f0; }
+.booked-num    { font-weight:700; font-size:10px; color:#1a1a1a; }
+.prebooked-num { font-weight:700; font-size:10px; color:#e07b00; }
+.unavail-text  { font-size:7px; color:#aaa; }
+.today-col     { outline:2px solid #4A90D9; outline-offset:-2px; }
+.grid-table td.clickable, .grid-table td.selected-cell { padding:0; cursor:pointer; }
+.grid-table td.clickable span, .grid-table td.selected-cell span {
+    display:flex; align-items:center; justify-content:center;
+    width:100%; height:22px; font-size:11px; font-weight:600; user-select:none;
+}
+.grid-table td.clickable span { color:transparent; }
+.grid-table td.clickable:hover span { color:#4A90D9; }
+.grid-table td.clickable:hover { background:rgba(74,144,217,0.13); }
+.grid-table td.selected-cell { background:rgba(74,144,217,0.22); }
+.grid-table td.selected-cell span { color:#2266cc; }
+.grid-table td.selected-cell:hover { background:rgba(74,144,217,0.32); }
+"""
 
 # ── Grid ─────────────────────────────────────────────────────────────────────
 def _handler_rows(h_list, rows):
@@ -209,14 +312,14 @@ def _handler_rows(h_list, rows):
                 if cell_key in _sel_cells:
                     # Already selected → click deselects
                     new_sel = ",".join(sorted(_sel_cells - {cell_key}))
-                    rows.append(f"<td class='selected-cell{tc_cls}'>"
-                                f"<a class='cell-link' data-sel='{new_sel}' href='#' title='Deselect'>✓</a></td>")
+                    rows.append(f"<td class='selected-cell{tc_cls}' data-sel='{new_sel}'>"
+                                f"<span title='Deselect'>✓</span></td>")
                 else:
                     # Not selected → click selects
                     new_sel = ",".join(sorted(_sel_cells | {cell_key}))
                     h_name  = h["name"]
-                    rows.append(f"<td class='clickable{tc_cls}'>"
-                                f"<a class='cell-link' data-sel='{new_sel}' href='#' title='Select {h_name}'>+</a></td>")
+                    rows.append(f"<td class='clickable{tc_cls}' data-sel='{new_sel}'>"
+                                f"<span title='Select {h_name}'>+</span></td>")
         rows.append("</tr>")
 
 
@@ -314,96 +417,16 @@ def build_grid() -> str:
     return "".join(rows)
 
 
-def build_grid_page() -> str:
-    """Wrap the grid table in a full HTML page with embedded CSS + JS.
-    Rendered via st.components.v1.html so JavaScript actually executes."""
-    grid_css = """
-body { margin:0; padding:0; overflow:hidden; background:transparent; }
-.grid-wrap {
-    overflow: auto;
-    height: 100vh;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-}
-.grid-table { border-collapse: collapse; font-size: 9px; }
-.grid-table th {
-    position: sticky; top: 0; z-index: 2;
-    background: #1a1a2e; color: white;
-    padding: 2px 2px; border: 1px solid #333;
-    white-space: nowrap; text-align: center;
-    font-weight: 600; width: 38px; min-width: 38px; max-width: 38px;
-}
-.grid-table thead tr:nth-child(2) th { top: 20px; }
-.grid-table th.name-col {
-    position: sticky; left: 0; top: 0; z-index: 4;
-    text-align: left; width: 130px; min-width: 130px; max-width: 130px;
-}
-.grid-table thead tr:nth-child(2) th.name-col { top: 20px; }
-.grid-table th.month-col {
-    font-size: 10px; font-weight: 700; letter-spacing: .04em;
-    background: #12122a; border-bottom: 1px solid #444;
-}
-.grid-table td {
-    border: 1px solid #e0e0e0; padding: 1px 2px; text-align: center;
-    height: 22px; vertical-align: middle;
-    width: 38px; min-width: 38px; max-width: 38px;
-}
-.grid-table td.name-cell {
-    position: sticky; left: 0; z-index: 1;
-    text-align: left; white-space: nowrap;
-    font-weight: 500; overflow: hidden;
-    width: 130px; min-width: 130px; max-width: 130px;
-    padding: 1px 4px;
-}
-.grid-table td.section-header {
-    position: sticky; left: 0; z-index: 1;
-    background: #e8e8e8; font-weight: 700; font-size: 9px;
-    color: #555; text-transform: uppercase; letter-spacing: 0.06em;
-    text-align: left; padding: 2px 4px;
-    width: auto; max-width: unset; min-width: unset;
-}
-.grid-table tr td.section-header ~ td { background: #f0f0f0; }
-.booked-num    { font-weight: 700; font-size: 10px; color: #1a1a1a; }
-.prebooked-num { font-weight: 700; font-size: 10px; color: #e07b00; }
-.unavail-text  { font-size: 7px; color: #aaa; }
-.today-col     { outline: 2px solid #4A90D9; outline-offset: -2px; }
-.grid-table td.clickable, .grid-table td.selected-cell { padding: 0; cursor: pointer; }
-.grid-table td.clickable a, .grid-table td.selected-cell a {
-    display: flex; align-items: center; justify-content: center;
-    width: 100%; height: 22px; text-decoration: none; font-size: 11px; font-weight: 600;
-}
-.grid-table td.clickable a { color: transparent; }
-.grid-table td.clickable a:hover { color: #4A90D9; background: rgba(74,144,217,0.13); }
-.grid-table td.selected-cell { background: rgba(74,144,217,0.22); }
-.grid-table td.selected-cell a { color: #2266cc; }
-.grid-table td.selected-cell a:hover { background: rgba(74,144,217,0.32); }
-"""
-    js = """
-document.addEventListener('click', function(e) {
-    e.preventDefault();
-    var a = e.target.closest('a.cell-link');
-    if (!a) return;
-    var sel = a.getAttribute('data-sel');
-    var search = sel ? ('?sel=' + sel) : '';
-    try { window.top.location.search = search; } catch(err) {
-        try { window.parent.location.search = search; } catch(e2) {}
-    }
-});
-"""
-    return (
-        "<!DOCTYPE html><html><head>"
-        f"<style>{grid_css}</style>"
-        "</head><body>"
-        f"{build_grid()}"
-        f"<script>{js}</script>"
-        "</body></html>"
-    )
-
-
-# Compute a reasonable iframe height based on row count
+# Render the grid via the proper declare_component so JS postMessage works
 _n_rows = len(handlers) + len(trucks) + 6   # +6 for section headers
 _grid_h = min(max(_n_rows * 24 + 50, 300), 720)
-components.html(build_grid_page(), height=_grid_h, scrolling=False)
+_clicked = _art_grid(html=build_grid(), css=GRID_CSS, h=_grid_h,
+                     default="", key="art_grid")
+# A cell was clicked → update selection in session state and rerun
+if _clicked is not None and _clicked != _sel_str:
+    st.session_state["_sel_str"] = _clicked
+    st.session_state.pop("qb_show_form", None)
+    st.rerun()
 
 # ── Multi-cell selection summary bar ─────────────────────────────────────────
 if _sel_cells:
@@ -436,7 +459,7 @@ if _sel_cells:
             _do_clear = st.button("✕ Clear selection", use_container_width=True,
                                   key="qb_clear")
         if _do_clear:
-            st.query_params.clear()
+            st.session_state["_sel_str"] = ""
             st.session_state.pop("qb_show_form", None)
             st.rerun()
         if _do_next:
@@ -566,7 +589,7 @@ if _sel_cells:
                             f"{'Confirmed' if do_confirm else 'Pre-booked'}: "
                             f"**{_title}** ({len(_free_cells)} slot(s))"
                         )
-                        st.query_params.clear()
+                        st.session_state["_sel_str"] = ""
                         st.session_state.pop("qb_show_form", None)
                         st.rerun()
 
