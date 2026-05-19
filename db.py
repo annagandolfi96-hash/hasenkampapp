@@ -472,3 +472,89 @@ def get_trucks_with_upcoming_service(warn_days: int = 60):
             "SELECT id, name, service_due FROM Truck "
             "WHERE service_due != '' AND service_due <= ?", (cutoff,)
         ).fetchall()]
+
+
+# ── Monthly invoice summary ───────────────────────────────────────────────────
+
+def get_projects_for_month(year: int, month: int) -> list:
+    """Return all projects that have at least one booking in the given month.
+
+    Each project dict contains:
+      - all Project + Client columns
+      - 'days': {date_str: [booking_row, ...]} for dates within the month
+      - 'all_days': same but for the full project span
+      - 'total_handler_days': count of all (handler, date) pairs in the month
+      - 'truck_days': list of {truckName, licensePlate, spec, date} in the month
+    """
+    import calendar as _cal
+    last_day = _cal.monthrange(year, month)[1]
+    from_date = f"{year:04d}-{month:02d}-01"
+    to_date   = f"{year:04d}-{month:02d}-{last_day:02d}"
+
+    with get_conn() as conn:
+        pid_rows = conn.execute(
+            "SELECT DISTINCT projectId FROM Booking WHERE date >= ? AND date <= ?",
+            (from_date, to_date),
+        ).fetchall()
+        project_ids = [r[0] for r in pid_rows]
+
+        results = []
+        for pid in project_ids:
+            row = conn.execute(
+                "SELECT p.*, c.name as clientName, c.color as clientColor "
+                "FROM Project p JOIN Client c ON c.id = p.clientId WHERE p.id=?",
+                (pid,),
+            ).fetchone()
+            if not row:
+                continue
+            p = dict(row)
+
+            # All bookings for this project in the selected month
+            month_bookings = [dict(r) for r in conn.execute(
+                "SELECT b.date, b.handlerId, h.name as handlerName, "
+                "h.level, h.type, COALESCE(h.company,'') as company "
+                "FROM Booking b JOIN ArtHandler h ON h.id = b.handlerId "
+                "WHERE b.projectId=? AND b.date >= ? AND b.date <= ? "
+                "ORDER BY b.date, h.name",
+                (pid, from_date, to_date),
+            ).fetchall()]
+
+            # Group by date
+            days: dict = {}
+            for b in month_bookings:
+                days.setdefault(b["date"], []).append(b)
+            p["days"] = dict(sorted(days.items()))
+            p["total_handler_days"] = len(month_bookings)
+
+            # Internal vs subcontractor handler-days
+            p["internal_days"]  = sum(1 for b in month_bookings if b["type"] == "Internal")
+            p["external_days"]  = sum(1 for b in month_bookings if b["type"] != "Internal")
+            p["blitz_days"]     = sum(1 for b in month_bookings if b["company"] == BLITZ_COMPANY)
+
+            # Truck usage in the month
+            p["truck_days"] = [dict(r) for r in conn.execute(
+                "SELECT tb.date, t.name as truckName, t.licensePlate, "
+                "COALESCE(t.spec,'') as spec "
+                "FROM TruckBooking tb JOIN Truck t ON t.id = tb.truckId "
+                "WHERE tb.projectId=? AND tb.date >= ? AND tb.date <= ? "
+                "ORDER BY tb.date",
+                (pid, from_date, to_date),
+            ).fetchall()]
+
+            results.append(p)
+
+        results.sort(key=lambda x: (x["clientName"], x["date"]))
+        return results
+
+
+def get_all_booking_months() -> list:
+    """Return sorted list of (year, month) tuples that have any bookings."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT substr(date,1,7) as ym FROM Booking ORDER BY ym"
+        ).fetchall()
+    result = []
+    for r in rows:
+        y, m = r[0].split("-")
+        result.append((int(y), int(m)))
+    return result
