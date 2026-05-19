@@ -360,25 +360,33 @@ def delete_truck(id):
 
 def get_projects_in_range(start: date, days: int):
     end = start + timedelta(days=days - 1)
+    s, e = start.isoformat(), end.isoformat()
     with get_conn() as conn:
+        # Find projects that have at least one booking date inside the window
         projects = [dict(r) for r in conn.execute(
-            "SELECT p.*, c.name as clientName, c.color as clientColor FROM Project p "
+            "SELECT DISTINCT p.*, c.name as clientName, c.color as clientColor "
+            "FROM Project p "
             "JOIN Client c ON c.id = p.clientId "
-            "WHERE p.date >= ? AND p.date <= ? ORDER BY p.date",
-            (start.isoformat(), end.isoformat()),
+            "JOIN Booking bx ON bx.projectId = p.id "
+            "WHERE bx.date >= ? AND bx.date <= ? "
+            "ORDER BY p.date",
+            (s, e),
         ).fetchall()]
         for p in projects:
+            # Only load bookings that fall within the visible window
             p["bookings"] = [dict(r) for r in conn.execute(
                 "SELECT b.*, h.name as handlerName, h.email as handlerEmail, "
                 "h.color as handlerColor, h.level, h.hasBadgeLouvre, "
                 "COALESCE(h.company,'') as company "
                 "FROM Booking b JOIN ArtHandler h ON h.id = b.handlerId "
-                "WHERE b.projectId=?", (p["id"],)
+                "WHERE b.projectId=? AND b.date >= ? AND b.date <= ?",
+                (p["id"], s, e)
             ).fetchall()]
             p["truckBookings"] = [dict(r) for r in conn.execute(
                 "SELECT tb.*, t.name as truckName, t.licensePlate, COALESCE(t.spec,'') as spec "
                 "FROM TruckBooking tb JOIN Truck t ON t.id = tb.truckId "
-                "WHERE tb.projectId=?", (p["id"],)
+                "WHERE tb.projectId=? AND tb.date >= ? AND tb.date <= ?",
+                (p["id"], s, e)
             ).fetchall()]
         return projects
 

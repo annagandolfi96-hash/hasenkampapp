@@ -38,7 +38,13 @@ window.addEventListener('message',function(e){
     if(e.data.type==='streamlit:render'){
         var a=e.data.args;
         if(a.css!=null)document.getElementById('dcss').textContent=a.css;
-        if(a.html!=null)document.getElementById('g').innerHTML=a.html;
+        if(a.html!=null){
+            var g=document.getElementById('g');
+            g.innerHTML=a.html;
+            var h=a.h||500;
+            g.style.height=h+'px';
+            document.body.style.height=h+'px';
+        }
         send('streamlit:setFrameHeight',{height:a.h||500});
     }
 });
@@ -182,11 +188,10 @@ handler_unavail, truck_unavail = db.get_unavailabilities_in_range(
 proj_by_handler: dict = {}
 proj_by_truck:   dict = {}
 for p in projects:
-    ds = p["date"]
     for b in p["bookings"]:
-        proj_by_handler[(ds, b["handlerId"])] = p
+        proj_by_handler[(b["date"], b["handlerId"])] = p
     for b in p["truckBookings"]:
-        proj_by_truck[(ds, b["truckId"])] = p
+        proj_by_truck[(b["date"], b["truckId"])] = p
 
 unavail_by_handler: dict = {}
 for u in handler_unavail:
@@ -206,8 +211,9 @@ _sel_cells: set = set(_sel_str.split(",")) - {""}
 
 # ── Grid CSS (passed as prop to the grid component) ───────────────────────────
 GRID_CSS = """
-body { margin:0; padding:0; }
-.grid-wrap { overflow:auto; height:100%; border:1px solid #ccc; border-radius:4px; }
+html,body { margin:0; padding:0; overflow:hidden; }
+#g { display:block; }
+.grid-wrap { overflow:auto; width:100%; height:100%; border:1px solid #ccc; border-radius:4px; }
 .grid-table { border-collapse:collapse; font-size:9px; }
 .grid-table th {
     position:sticky; top:0; z-index:2;
@@ -299,10 +305,11 @@ def _handler_rows(h_list, rows):
             unavail = unavail_by_handler.get((ds, h["id"]))
             tc = " today-col" if ds == today_str else ""
             if proj:
-                bg = hex_to_rgba(proj["clientColor"], 0.4)
+                bg      = hex_to_rgba(proj["clientColor"], 0.4)
                 num_cls = "booked-num" if proj["status"] == "BOOKED" else "prebooked-num"
-                count = len(proj["bookings"])
-                rows.append(f"<td style='background:{bg}' class='{tc}'><span class='{num_cls}'>{count}</span></td>")
+                # Count handlers working on this specific day (not total across all days)
+                day_count = sum(1 for b in proj["bookings"] if b["date"] == ds)
+                rows.append(f"<td style='background:{bg}' class='{tc}'><span class='{num_cls}'>{day_count}</span></td>")
             elif unavail:
                 reason = (unavail.get("reason") or "")[:4]
                 rows.append(f"<td style='background:#111' class='{tc}'><span class='unavail-text'>{reason}</span></td>")
