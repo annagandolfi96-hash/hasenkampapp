@@ -13,54 +13,6 @@ st.set_page_config(
 
 db.init_db()
 
-# ── Declare the grid selection component ─────────────────────────────────────
-# st.components.v1.html() uses a srcdoc iframe (null/opaque origin) so
-# window.top/parent.location throws SecurityError. The declare_component path
-# serves files from the same origin and uses Streamlit's postMessage protocol
-# so setComponentValue actually reaches Python.
-_COMP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_artgrid_comp")
-os.makedirs(_COMP_DIR, exist_ok=True)
-with open(os.path.join(_COMP_DIR, "index.html"), "w", encoding="utf-8") as _cf:
-    _cf.write("""<!DOCTYPE html>
-<html>
-<head>
-<style>html,body{margin:0;padding:0;background:transparent;}</style>
-<style id="dcss"></style>
-</head>
-<body>
-<div id="g"></div>
-<script>
-function send(t,p){
-    window.parent.postMessage(Object.assign({isStreamlitMessage:true,type:t},p),'*');
-}
-window.addEventListener('message',function(e){
-    if(!e.data||!e.data.isStreamlitMessage)return;
-    if(e.data.type==='streamlit:render'){
-        var a=e.data.args;
-        if(a.css!=null)document.getElementById('dcss').textContent=a.css;
-        if(a.html!=null){
-            var g=document.getElementById('g');
-            g.innerHTML=a.html;
-            var h=a.h||500;
-            g.style.height=h+'px';
-            document.body.style.height=h+'px';
-        }
-        send('streamlit:setFrameHeight',{height:a.h||500});
-    }
-});
-document.addEventListener('click',function(e){
-    var td=e.target.closest('td[data-sel]');
-    if(!td)return;
-    e.preventDefault();
-    send('streamlit:setComponentValue',{value:td.getAttribute('data-sel')||'',dataType:'json'});
-});
-send('streamlit:componentReady',{apiVersion:1});
-</script>
-</body>
-</html>""")
-
-_art_grid = components.declare_component("art_grid", path=_COMP_DIR)
-
 # ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -203,13 +155,10 @@ for u in truck_unavail:
 
 today_str = date.today().isoformat()
 
-# ── Selection state (session_state, not query_params — components use postMessage) ──
-if "_sel_str" not in st.session_state:
-    st.session_state["_sel_str"] = ""
-_sel_str:   str = st.session_state["_sel_str"]
-_sel_cells: set = set(_sel_str.split(",")) - {""}
+# Selected cells — format "handlerId:YYYY-MM-DD,handlerId:YYYY-MM-DD"
+_sel_cells: set = set(st.query_params.get("sel", "").split(",")) - {""}
 
-# ── Grid CSS (passed as prop to the grid component) ───────────────────────────
+# ── Grid CSS ──────────────────────────────────────────────────────────────────
 GRID_CSS = """
 html,body { margin:0; padding:0; overflow:hidden; }
 #g { display:block; }
@@ -424,16 +373,39 @@ def build_grid() -> str:
     return "".join(rows)
 
 
-# Render the grid via the proper declare_component so JS postMessage works
-_n_rows = len(handlers) + len(trucks) + 6   # +6 for section headers
+def build_grid_page() -> str:
+    """Full standalone HTML page — rendered via components.html so JS executes."""
+    js = """
+document.addEventListener('click', function(e) {
+    var td = e.target.closest('td[data-sel]');
+    if (!td) return;
+    e.preventDefault();
+    var sel = td.getAttribute('data-sel') || '';
+    var newSearch = sel ? ('?sel=' + sel) : '';
+    try {
+        var p = window.parent;
+        p.location.href = p.location.origin + p.location.pathname + newSearch;
+    } catch(err) {
+        try {
+            window.top.location.href = window.top.location.origin
+                + window.top.location.pathname + newSearch;
+        } catch(e2) {}
+    }
+});
+"""
+    return (
+        "<!DOCTYPE html><html><head>"
+        "<style>" + GRID_CSS + "</style>"
+        "</head><body>"
+        + build_grid()
+        + "<script>" + js + "</script>"
+        "</body></html>"
+    )
+
+
+_n_rows = len(handlers) + len(trucks) + 6
 _grid_h = min(max(_n_rows * 24 + 50, 300), 720)
-_clicked = _art_grid(html=build_grid(), css=GRID_CSS, h=_grid_h,
-                     default="", key="art_grid")
-# A cell was clicked → update selection in session state and rerun
-if _clicked is not None and _clicked != _sel_str:
-    st.session_state["_sel_str"] = _clicked
-    st.session_state.pop("qb_show_form", None)
-    st.rerun()
+components.html(build_grid_page(), height=_grid_h, scrolling=False)
 
 # ── Multi-cell selection summary bar ─────────────────────────────────────────
 if _sel_cells:
@@ -466,7 +438,7 @@ if _sel_cells:
             _do_clear = st.button("✕ Clear selection", use_container_width=True,
                                   key="qb_clear")
         if _do_clear:
-            st.session_state["_sel_str"] = ""
+            st.query_params.clear()
             st.session_state.pop("qb_show_form", None)
             st.rerun()
         if _do_next:
@@ -596,7 +568,7 @@ if _sel_cells:
                             f"{'Confirmed' if do_confirm else 'Pre-booked'}: "
                             f"**{_title}** ({len(_free_cells)} slot(s))"
                         )
-                        st.session_state["_sel_str"] = ""
+                        st.query_params.clear()
                         st.session_state.pop("qb_show_form", None)
                         st.rerun()
 
