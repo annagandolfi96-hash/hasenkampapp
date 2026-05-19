@@ -156,6 +156,11 @@ today_str = date.today().isoformat()
 
 # Selected cells — format "handlerId:YYYY-MM-DD,handlerId:YYYY-MM-DD"
 _sel_cells: set = set(st.query_params.get("sel", "").split(",")) - {""}
+_parsed_sel: list = []
+for _ck in sorted(_sel_cells):
+    _ck_parts = _ck.split(":")
+    if len(_ck_parts) == 2 and _ck_parts[0] in handler_map:
+        _parsed_sel.append((handler_map[_ck_parts[0]], _ck_parts[1]))
 
 # ── Grid CSS ──────────────────────────────────────────────────────────────────
 GRID_CSS = """
@@ -405,42 +410,34 @@ document.addEventListener('click', function(e) {
 st.iframe(build_grid_page(), height=min(max((len(handlers) + len(trucks) + 6) * 24 + 50, 300), 720))
 
 # ── Multi-cell selection summary bar ─────────────────────────────────────────
-if _sel_cells:
-    # Parse & validate selected cells
-    _parsed_sel: list = []
-    for _ck in sorted(_sel_cells):
-        parts = _ck.split(":")
-        if len(parts) == 2 and parts[0] in handler_map:
-            _parsed_sel.append((handler_map[parts[0]], parts[1]))
+if _parsed_sel:
+    _names_str = ", ".join(
+        f"**{h['name']}** ({ds})" for h, ds in _parsed_sel
+    )
+    st.markdown(
+        f"<div style='background:#eef4ff;border:2px solid #4A90D9;"
+        f"border-radius:8px;padding:10px 16px;margin:6px 0'>"
+        f"<b style='font-size:13px;color:#2255aa'>"
+        f"🗂 {len(_parsed_sel)} cell{'s' if len(_parsed_sel)>1 else ''} selected"
+        f" — shown in the <b>📋 New Booking</b> tab below</b>"
+        f"<br><span style='font-size:11px;color:#444'>{_names_str}</span></div>",
+        unsafe_allow_html=True,
+    )
 
-    if _parsed_sel:
-        # Compact summary shown below the grid
-        _names_str = ", ".join(
-            f"**{h['name']}** ({ds})" for h, ds in _parsed_sel
-        )
-        st.markdown(
-            f"<div style='background:#eef4ff;border:2px solid #4A90D9;"
-            f"border-radius:8px;padding:10px 16px;margin:6px 0'>"
-            f"<b style='font-size:13px;color:#2255aa'>"
-            f"🗂 {len(_parsed_sel)} cell{'s' if len(_parsed_sel)>1 else ''} selected</b>"
-            f"<br><span style='font-size:11px;color:#444'>{_names_str}</span></div>",
-            unsafe_allow_html=True,
-        )
-
-        _sb1, _sb2, _sb3 = st.columns([2, 2, 6])
-        with _sb1:
-            _do_next = st.button("Next →", type="primary", use_container_width=True,
-                                 key="qb_next")
-        with _sb2:
-            _do_clear = st.button("✕ Clear selection", use_container_width=True,
-                                  key="qb_clear")
-        if _do_clear:
-            st.query_params.clear()
-            st.session_state.pop("qb_show_form", None)
-            st.rerun()
-        if _do_next:
-            st.session_state["qb_show_form"] = True
-            st.rerun()
+    _sb1, _sb2, _sb3 = st.columns([2, 2, 6])
+    with _sb1:
+        _do_next = st.button("Quick Confirm ↓", type="primary", use_container_width=True,
+                             key="qb_next")
+    with _sb2:
+        _do_clear = st.button("✕ Clear selection", use_container_width=True,
+                              key="qb_clear")
+    if _do_clear:
+        st.query_params.clear()
+        st.session_state.pop("qb_show_form", None)
+        st.rerun()
+    if _do_next:
+        st.session_state["qb_show_form"] = True
+        st.rerun()
 
         # ── Booking form (expands when Next is clicked) ───────────────────
         if st.session_state.get("qb_show_form"):
@@ -576,6 +573,31 @@ tab1, tab2, tab3 = st.tabs(["📋 New Booking", "🚫 Mark Unavailable", "📁 V
 
 # ── Tab 1: New Booking ────────────────────────────────────────────────────────
 with tab1:
+    # ── Grid-selected cells (synced from calendar) ────────────────────────────
+    if _parsed_sel:
+        _sel_by_date: dict = {}
+        for _sh, _sds in _parsed_sel:
+            _sel_by_date.setdefault(_sds, []).append(_sh["name"])
+        _sel_rows_html = "".join(
+            f"<span style='font-size:12px'>"
+            f"<b style='color:#2255aa'>{date.fromisoformat(_sds).strftime('%a %d %b') if _sds else _sds}:</b>"
+            f" {', '.join(_sel_by_date[_sds])}</span><br>"
+            for _sds in sorted(_sel_by_date)
+        )
+        st.markdown(
+            f"<div style='background:#eef4ff;border:1px solid #4A90D9;"
+            f"border-radius:8px;padding:10px 16px;margin-bottom:10px'>"
+            f"<b style='font-size:13px;color:#2255aa'>"
+            f"📅 {len(_parsed_sel)} slot{'s' if len(_parsed_sel)>1 else ''} selected from calendar</b><br>"
+            f"{_sel_rows_html}</div>",
+            unsafe_allow_html=True,
+        )
+        if st.button("✕ Clear grid selection", key="nb_clear_sel"):
+            st.query_params.clear()
+            st.session_state.pop("qb_show_form", None)
+            st.rerun()
+        st.markdown("---")
+
     # ── Project metadata ──────────────────────────────────────────────────────
     meta_c1, meta_c2 = st.columns(2)
     with meta_c1:
@@ -607,7 +629,7 @@ with tab1:
 
     # ── Booking schedule (multi-date-range lines) ─────────────────────────────
     st.markdown("**Booking Schedule**")
-    st.caption("Add one or more date ranges, each with their own team. All ranges form a single project.")
+    st.caption("Add date ranges below, or select cells directly on the calendar — both feed into one project.")
 
     if "nb_booking_lines" not in st.session_state:
         st.session_state.nb_booking_lines = []
@@ -687,7 +709,8 @@ with tab1:
 
     # ── Truck selection (whole-project) ───────────────────────────────────────
     st.markdown("**Assign Vehicles** (optional)")
-    _truck_ref_date = _lines[0]["date_from"] if _lines else date.today().isoformat()
+    _all_ref_dates = [_l["date_from"] for _l in _lines] + [_sds for _, _sds in _parsed_sel]
+    _truck_ref_date = min(_all_ref_dates) if _all_ref_dates else date.today().isoformat()
     t_unavail_ids, t_booked_ids = db.get_unavailable_truck_ids(_truck_ref_date)
     t_blocked_ids = t_unavail_ids | t_booked_ids
 
@@ -721,6 +744,9 @@ with tab1:
         for _hid in _ln["handler_ids"]:
             if _hid in handler_map and handler_map[_hid].get("company") == db.BLITZ_COMPANY:
                 _blitz_hids_in_lines.add(_hid)
+    for _gh, _ in _parsed_sel:
+        if _gh.get("company") == db.BLITZ_COMPANY:
+            _blitz_hids_in_lines.add(_gh["id"])
     _has_blitz = len(_blitz_hids_in_lines) > 0
     if _has_blitz:
         _blitz_names_str = ", ".join(handler_map[_hid]["name"] for _hid in _blitz_hids_in_lines)
@@ -728,11 +754,16 @@ with tab1:
 
     # ── Build title preview ───────────────────────────────────────────────────
     def _build_nb_title():
-        if not client_name or not project_number or not initials or not _lines:
+        if not client_name or not project_number or not initials:
+            return ""
+        if not _lines and not _parsed_sel:
             return ""
         _all_hids = list(dict.fromkeys(
             _hid for _ln in _lines for _hid in _ln["handler_ids"]
         ))
+        for _gh, _ in _parsed_sel:
+            if _gh["id"] not in _all_hids:
+                _all_hids.append(_gh["id"])
         _own_names  = [handler_map[_hid]["name"].split()[0] for _hid in _all_hids
                        if _hid in handler_map
                        and handler_map[_hid].get("company") != db.BLITZ_COMPANY]
@@ -752,18 +783,21 @@ with tab1:
         if not client_name or not project_number or not initials:
             st.error("Please fill in Client, Project Number and Initials.")
             return
-        if not _lines:
-            st.error("Add at least one date range to the Booking Schedule.")
-            return
-        # Expand each line into individual (handler_id, date) pairs
-        _pairs: list = []
+        # Grid-selected slots
+        _grid_pairs = [(h["id"], ds) for h, ds in _parsed_sel]
+        # Manually added date-range lines
+        _manual_pairs: list = []
         for _ln in _lines:
             _d_cur = date.fromisoformat(_ln["date_from"])
             _d_end = date.fromisoformat(_ln["date_to"])
             while _d_cur <= _d_end:
                 for _hid in _ln["handler_ids"]:
-                    _pairs.append((_hid, _d_cur.isoformat()))
+                    _manual_pairs.append((_hid, _d_cur.isoformat()))
                 _d_cur += timedelta(days=1)
+        _pairs = _grid_pairs + _manual_pairs
+        if not _pairs:
+            st.error("Select cells on the calendar or add at least one date range below.")
+            return
         _proj_date = min(_ds for _, _ds in _pairs)
         _title = _build_nb_title() or f"{initials} - {client_name} - {project_number}"
         db.create_project(
@@ -777,6 +811,8 @@ with tab1:
         )
         st.success(f"{'Confirmed' if status == 'BOOKED' else 'Pre-booked'}: **{_title}**"
                    f" ({len(_pairs)} handler-day slot(s))")
+        st.query_params.clear()
+        st.session_state.pop("qb_show_form", None)
         st.session_state.nb_booking_lines = []
         st.rerun()
 
