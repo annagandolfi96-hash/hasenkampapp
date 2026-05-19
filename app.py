@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 from datetime import date, timedelta
 from itertools import groupby
 import os
@@ -160,7 +159,7 @@ _sel_cells: set = set(st.query_params.get("sel", "").split(",")) - {""}
 
 # ── Grid CSS ──────────────────────────────────────────────────────────────────
 GRID_CSS = """
-html,body { margin:0; padding:0; overflow:hidden; }
+html,body { margin:0; padding:0; overflow:hidden; height:100%; }
 #g { display:block; }
 .grid-wrap { overflow:auto; width:100%; height:100%; border:1px solid #ccc; border-radius:4px; }
 .grid-table { border-collapse:collapse; font-size:9px; }
@@ -403,9 +402,7 @@ document.addEventListener('click', function(e) {
     )
 
 
-_n_rows = len(handlers) + len(trucks) + 6
-_grid_h = min(max(_n_rows * 24 + 50, 300), 720)
-components.html(build_grid_page(), height=_grid_h, scrolling=False)
+st.iframe(build_grid_page(), height=min(max((len(handlers) + len(trucks) + 6) * 24 + 50, 300), 720))
 
 # ── Multi-cell selection summary bar ─────────────────────────────────────────
 if _sel_cells:
